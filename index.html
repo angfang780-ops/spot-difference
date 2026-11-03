@@ -1,0 +1,776 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<title>틀린 그림 찾기</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#12261F">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="틀린그림">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Do+Hyeon&family=IBM+Plex+Sans+KR:wght@400;500;700&display=swap">
+<style>
+  [hidden]{display:none!important}
+  html{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+  :root{
+    color-scheme: dark;
+    --felt:#1D3A33;
+    --felt-deep:#12261F;
+    --bar:#0E1F1A;
+    --ink:#ECE5D3;
+    --ink-dim:#9FB3A8;
+    --brass:#D8A445;
+    --brass-ink:#2A1D06;
+    --line:rgba(236,229,211,.14);
+    --chip:rgba(236,229,211,.06);
+  }
+  html{box-sizing:border-box;height:100%}
+  *,*::before,*::after{box-sizing:inherit}
+  body{
+    height:100%;margin:0;overflow:hidden;overscroll-behavior:none;
+    background:var(--felt-deep);color:var(--ink);
+    font:400 15px/1.4 "IBM Plex Sans KR",system-ui,-apple-system,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;
+    -webkit-user-select:none;user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent;
+  }
+  .app{position:relative;height:100%}
+  /* 화면이 세로면 게임 화면 전체를 90도 돌려 세로 화면을 꽉 채운다 — 태블릿을 옆으로 돌려 들면 가로 화면처럼 보임 (자동회전 꺼도 됨) */
+  @media (orientation:portrait){
+    .app{position:fixed;top:0;left:100vw;width:100vh;height:100vw;transform-origin:0 0;transform:rotate(90deg)}
+  }
+  .btn{
+    display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:58px;padding:0 18px;
+    border-radius:12px;border:1px solid var(--line);background:var(--chip);color:var(--ink);
+    font-family:inherit;font-size:19px;font-weight:500;line-height:1.2;cursor:pointer;touch-action:manipulation;white-space:nowrap;
+  }
+  .btn:focus-visible,.vh:focus-visible + label{outline:3px solid var(--brass);outline-offset:2px}
+  .btn.primary{background:var(--brass);color:var(--brass-ink);border-color:transparent;font-weight:700}
+  .btn[aria-pressed="true"]{background:rgba(216,164,69,.16);border-color:var(--brass);color:var(--brass)}
+  .btn[data-armed="1"]{background:#7A2E22;border-color:#C25A45;color:#FFE9E2}
+  /* 난이도는 앱 안의 버튼으로 고른다 — 기기 기본 선택 창(select)은 돌린 화면을 따라 돌지 않는다 */
+  .seg{display:flex;align-items:center;gap:6px}
+  .seg .btn{flex:1 1 0;min-width:0;padding:0 4px;font-size:18px}
+  .seg .btn[aria-pressed="true"]{background:var(--brass);color:var(--brass-ink);border-color:transparent;font-weight:700}
+  .vh{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+  .stage{position:absolute;inset:0}
+  #board{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none}
+  /* 오른쪽 띠: 설정 · 찾은 개수 · 힌트 — 사진을 가리지 않게 따로 둔다 */
+  .side{
+    position:absolute;right:0;top:0;bottom:0;width:var(--side);display:flex;flex-direction:column;align-items:stretch;
+    justify-content:space-between;gap:10px;padding:12px 10px;background:var(--bar);border-left:1px solid var(--line)
+  }
+  .side .btn{min-height:60px;padding:0 6px;font-size:20px;font-weight:700;background:var(--brass);color:var(--brass-ink);border-color:transparent;box-shadow:0 4px 14px rgba(0,0,0,.45)}
+  .side .btn.hint{min-height:72px;font-size:22px}
+  .score{display:flex;flex-direction:column;align-items:center;gap:8px;text-align:center}
+  .score b{font-family:"Do Hyeon","IBM Plex Sans KR",sans-serif;font-weight:400;font-size:40px;line-height:1;color:var(--brass)}
+  .score span{color:var(--ink-dim);font-size:15px}
+  .dots{display:flex;flex-wrap:wrap;justify-content:center;gap:6px}
+  .dots i{width:16px;height:16px;border-radius:50%;border:2px solid var(--brass)}
+  .dots i.on{background:var(--brass)}
+  .veil{position:absolute;inset:0;display:grid;place-items:center;padding:16px;background:rgba(6,16,13,.55);overflow:auto}
+  .card{
+    width:min(100%,460px);padding:26px 24px 24px;border-radius:18px;
+    background:var(--bar);border:1px solid var(--line);box-shadow:0 20px 50px rgba(0,0,0,.5);
+    display:flex;flex-direction:column;gap:18px
+  }
+  .card h2{margin:0;font-family:"Do Hyeon","IBM Plex Sans KR",sans-serif;font-weight:400;font-size:44px;line-height:1;color:var(--brass)}
+  .card h3{margin:0;font-family:"Do Hyeon","IBM Plex Sans KR",sans-serif;font-weight:400;font-size:30px;line-height:1;color:var(--brass)}
+  .card dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:8px 18px;font-size:19px;font-variant-numeric:tabular-nums}
+  .card dt{color:var(--ink-dim)}
+  .card dd{margin:0;font-weight:700}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .grid2 .wide{grid-column:1 / -1}
+  .note{margin:0;color:var(--ink-dim);font-size:15px}
+  .album{display:flex;flex-direction:column;gap:10px;padding:12px;border-radius:12px;border:1px dashed var(--line)}
+  .album .note{font-size:16px}
+  .album .note b{color:var(--brass)}
+  .toast{
+    position:absolute;left:50%;top:16px;transform:translateX(-50%);max-width:calc(100% - 32px);
+    padding:12px 18px;border-radius:12px;background:#3A1E18;border:1px solid #9C4A38;color:#FFE4DB;font-size:17px
+  }
+  @media (prefers-reduced-motion:no-preference){
+    .btn{transition:background .15s,border-color .15s,color .15s}
+  }
+</style>
+</head>
+<body>
+
+<div class="app">
+  <main class="stage" id="stage">
+    <canvas id="board" role="img" aria-label="두 사진에서 다른 곳 찾기"></canvas>
+    <aside class="side" id="side">
+      <button id="gear" class="btn" type="button">설정</button>
+      <div class="score"><span>찾은 곳</span><b id="score">0/0</b><div class="dots" id="dots"></div></div>
+      <button id="hint" class="btn hint" type="button">힌트</button>
+    </aside>
+    <div class="toast" id="toast" hidden></div>
+
+    <div class="veil" id="menu" hidden>
+      <div class="card" role="dialog" aria-label="설정">
+        <h3>설정</h3>
+        <div class="grid2">
+          <input id="file" class="vh" type="file" accept="image/*">
+          <label for="file" class="btn primary wide">사진 한 장 고르기</label>
+          <input id="dir" class="vh" type="file" webkitdirectory multiple>
+          <label for="dir" class="btn wide" id="dirLbl">폴더 고르기</label>
+          <div class="album wide" id="album" hidden>
+            <p class="note">사진 묶음 <b id="albumN">0</b>장 · 다 찾으면 이 중에서 다른 사진이 나와요</p>
+            <div class="grid2">
+              <button id="next" class="btn" type="button">다른 사진으로</button>
+              <button id="albumClear" class="btn" type="button">묶음 비우기</button>
+            </div>
+          </div>
+          <div id="level" class="seg wide" role="group" aria-label="난이도">
+            <button class="btn" type="button" data-v="1" aria-pressed="true">쉬움 3곳</button>
+            <button class="btn" type="button" data-v="2" aria-pressed="false">보통 5곳</button>
+            <button class="btn" type="button" data-v="3" aria-pressed="false">어려움 7곳</button>
+          </div>
+          <button id="again" class="btn" type="button">새로 바꾸기</button>
+          <button id="sound" class="btn" type="button" aria-pressed="true">소리</button>
+          <button id="full" class="btn wide" type="button">전체 화면</button>
+        </div>
+        <p class="note" id="stat">시간 <b id="tm">0:00</b> · 왼쪽과 오른쪽 사진에서 다른 곳을 눌러요 · 「힌트」는 여러 번 누를수록 더 정확히 알려 줘요</p>
+        <button id="menuClose" class="btn primary" type="button">닫고 찾기</button>
+      </div>
+    </div>
+
+    <div class="veil" id="done" hidden>
+      <div class="card">
+        <h2>다 찾았어요!</h2>
+        <dl>
+          <dt>걸린 시간</dt><dd id="dTm">0:00</dd>
+          <dt>찾은 곳</dt><dd id="dPc">0</dd>
+        </dl>
+        <button id="doneNext" class="btn primary" type="button" hidden>다른 사진으로</button>
+        <button id="doneAgain" class="btn primary" type="button">한 번 더 하기</button>
+        <button id="doneClose" class="btn" type="button">그림 보기</button>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+(() => {
+  const $ = s => document.querySelector(s);
+  const cv = $('#board'), ctx = cv.getContext('2d');
+  const stage = $('#stage'), side = $('#side');
+  const turned = matchMedia('(orientation: portrait)');
+  const KEY = 'diff.v1', ALBUM = 'diff.album', AUTO_SEC = 10, DONE_DELAY = 1, HINT_MS = 5000;
+  // 난이도: 바꿀 곳 수, 크기(사진 짧은 변 대비)
+  const LEVELS = { 1: { n: 3, size: .12 }, 2: { n: 5, size: .095 }, 3: { n: 7, size: .075 } };
+  const KINDS = ['hue', 'clone', 'turn', 'shape', 'bright'];
+  // 「새로 생긴 물건」으로 그려 넣을 모양 (100×100 칸)
+  const SHAPES = [
+    'M50 86C20 62 8 45 14 30C20 15 42 14 50 30C58 14 80 15 86 30C92 45 80 62 50 86Z',
+    'M50 8L61 38H93L67 57L77 88L50 69L23 88L33 57L7 38H39Z',
+    'M50 12L90 46H78V88H22V46H10Z',
+    'M10 52A40 40 0 0 1 90 52Z M48 52H52V82A8 8 0 0 1 36 82H40A4 4 0 0 0 48 82Z',
+    'M18 50Q45 20 72 50Q45 80 18 50Z M68 50L92 30L86 50L92 70Z',
+    'M50 50m-36 0a36 36 0 1 0 72 0a36 36 0 1 0 -72 0Z'
+  ].map(d => new Path2D(d));
+  const COLORS = ['#E5432F', '#F2C230', '#2F7FE5', '#FFFFFF', '#7B3FB8', '#2FA35B'];
+
+  let W = 0, H = 0, dpr = 1, S = 1, AX = 0, AY = 0, BX = 0, BY = 0;
+  let G = null, dirty = true, felt = null, showDone = true, soundOn = true;
+  let fx = [];
+
+  const store = {
+    get(k){ try { return localStorage.getItem(k); } catch(e){ return null; } },
+    set(k,v){ try { localStorage.setItem(k,v); return true; } catch(e){ return false; } }
+  };
+  const rnd = (a,b) => a + Math.random()*(b-a);
+  const shuffle = a => { for (let i = a.length-1; i > 0; i--){ const j = Math.floor(Math.random()*(i+1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+
+  // ---------- 다른 곳 만들기 ----------
+  // 무늬가 있는 곳(밝기 흩어짐이 큰 곳)을 고른다 — 하늘처럼 밋밋한 곳은 바꿔도 티가 안 나거나 너무 티가 난다
+  function busyMap(base){
+    const gw = 96, gh = Math.max(1, Math.round(96*base.height/base.width));
+    const c = document.createElement('canvas'); c.width = gw; c.height = gh;
+    const g = c.getContext('2d', { willReadFrequently: true });
+    g.drawImage(base, 0, 0, gw, gh);
+    const px = g.getImageData(0, 0, gw, gh).data, lum = new Float32Array(gw*gh);
+    for (let i = 0; i < lum.length; i++) lum[i] = .299*px[i*4] + .587*px[i*4+1] + .114*px[i*4+2];
+    const k = gw/base.width;
+    return (x, y, r) => {
+      const x0 = Math.max(0, Math.floor((x - r)*k)), x1 = Math.min(gw-1, Math.ceil((x + r)*k));
+      const y0 = Math.max(0, Math.floor((y - r)*k)), y1 = Math.min(gh-1, Math.ceil((y + r)*k));
+      let n = 0, sum = 0, sq = 0;
+      for (let yy = y0; yy <= y1; yy++) for (let xx = x0; xx <= x1; xx++){ const v = lum[yy*gw + xx]; n++; sum += v; sq += v*v; }
+      const m = sum/n;
+      return { sd: Math.sqrt(Math.max(0, sq/n - m*m)), mean: m };
+    };
+  }
+  function plan(base, level){
+    const L = LEVELS[level], w = base.width, h = base.height, short = Math.min(w, h), busy = busyMap(base);
+    const kinds = shuffle(KINDS.slice());
+    const out = [];
+    for (let i = 0; i < L.n; i++){
+      let best = null, bestScore = -Infinity;
+      for (let t = 0; t < 300; t++){
+        const r = short*L.size*rnd(.9, 1.15), m = r*1.15;
+        const d = { x: rnd(m, w-m), y: rnd(m, h-m), r };
+        const gap = Math.min(Infinity, ...out.map(q => Math.hypot(q.x-d.x, q.y-d.y) - (q.r+d.r)*1.3));
+        if (gap <= 0) continue;
+        const b = busy(d.x, d.y, r);
+        const score = Math.min(b.sd, 40) + Math.min(gap/short, .15)*30;
+        if (score > bestScore){ best = { ...d, mean: b.mean }; bestScore = score; }
+      }
+      if (!best) continue;
+      const kind = kinds[i % kinds.length], a = rnd(0, Math.PI*2);
+      out.push({
+        x: +best.x.toFixed(1), y: +best.y.toFixed(1), r: +best.r.toFixed(1), k: kind,
+        p: kind === 'hue' ? Math.round(rnd(110, 250)) : kind === 'bright' ? (best.mean > 120 ? .5 : 1.7)
+         : kind === 'clone' ? +a.toFixed(3) : kind === 'shape' ? Math.floor(rnd(0, SHAPES.length)) * 10 + Math.floor(rnd(0, COLORS.length)) : 0,
+        f: 0
+      });
+    }
+    return out;
+  }
+  // 바뀐 오른쪽 사진을 그린다
+  function paint(base, diffs){
+    const c = document.createElement('canvas'); c.width = base.width; c.height = base.height;
+    const g = c.getContext('2d');
+    g.drawImage(base, 0, 0);
+    const canFilter = 'filter' in g;
+    for (const d of diffs){
+      g.save();
+      g.beginPath(); g.arc(d.x, d.y, d.r, 0, Math.PI*2); g.clip();
+      let k = d.k;
+      if ((k === 'hue' || k === 'bright') && !canFilter) k = 'clone';
+      if (k === 'hue'){ g.filter = `hue-rotate(${d.p}deg) saturate(1.7)`; g.drawImage(base, 0, 0); }
+      else if (k === 'bright'){ g.filter = `brightness(${d.p})`; g.drawImage(base, 0, 0); }
+      else if (k === 'turn'){ g.translate(d.x, d.y); g.rotate(Math.PI); g.translate(-d.x, -d.y); g.drawImage(base, 0, 0); }
+      else if (k === 'clone'){ const a = d.k === 'clone' ? d.p : 1, s = d.r*2.3; g.drawImage(base, -Math.cos(a)*s, -Math.sin(a)*s); }
+      else if (k === 'shape'){
+        const sz = d.r*1.5, path = SHAPES[Math.floor(d.p/10) % SHAPES.length];
+        g.translate(d.x - sz/2, d.y - sz/2); g.scale(sz/100, sz/100);
+        g.fillStyle = COLORS[d.p % 10 % COLORS.length]; g.fill(path);
+        g.lineWidth = 4; g.strokeStyle = 'rgba(0,0,0,.45)'; g.stroke(path);
+      }
+      g.restore();
+    }
+    return c;
+  }
+
+  // ---------- 게임 ----------
+  function build(base, level, sample, dataURL, saved){
+    const diffs = saved ? saved.diffs : plan(base, level);
+    G = { base, sample, dataURL, level, diffs, changed: paint(base, diffs), hintD: null,
+          elapsed: saved ? saved.el || 0 : 0, done: !!(saved && saved.done), started: false };
+    fx = [];
+    layout();
+    showDone = true;
+    syncUI();
+    save();
+  }
+  function newGame(img, level, sample, dataURL){
+    if (!sample && !dataURL){ try { dataURL = img.toDataURL('image/jpeg', .85); } catch(e){ dataURL = null; } }
+    build(img, level, sample, dataURL, null);
+    $('#menu').hidden = true;
+  }
+  const level = () => { const b = $('#level [aria-pressed="true"]'); return b ? +b.dataset.v : 1; };
+  function syncLevel(v){ for (const b of $('#level').querySelectorAll('[data-v]')) b.setAttribute('aria-pressed', +b.dataset.v === v ? 'true' : 'false'); }
+  const foundN = () => G.diffs.filter(d => d.f).length;
+
+  function finish(){
+    G.done = true; G.started = false; showDone = false;
+    [523, 659, 784, 1047].forEach((f, i) => setTimeout(() => beep(f, .18), i*110));
+    syncUI();
+    const cur = G;
+    setTimeout(() => { if (G === cur) openDone(); }, DONE_DELAY*1000);
+  }
+  function openDone(){
+    if (!G || !G.done || showDone) return;
+    showDone = true; syncUI();
+    if (album.length) startAuto();
+  }
+
+  // 힌트: 같은 곳을 누를 때마다 더 정확히 — ① 근처 큰 동그라미 ② 작은 동그라미 ③ 바뀐 곳 테두리 반짝
+  function hint(){
+    if (!G || G.done) return;
+    wakeAudio();
+    const d = G.hintD && !G.hintD.f ? G.hintD : G.diffs.find(x => !x.f);
+    if (!d) return;
+    G.hintD = d; d.h = (d.h || 0) + 1;
+    fx = fx.filter(f => f.kind === 'miss');
+    const now = performance.now();
+    if (d.h >= 3) fx.push({ kind: 'exact', x: d.x, y: d.y, r: d.r*1.08, t0: now, dur: HINT_MS });
+    else {
+      const a = rnd(0, Math.PI*2), off = rnd(0, d.r*(d.h === 1 ? .9 : .35));
+      fx.push({ kind: 'near', x: d.x + off*Math.cos(a), y: d.y + off*Math.sin(a), r: d.r*(d.h === 1 ? 2.3 : 1.4), t0: now, dur: HINT_MS });
+    }
+    beep(d.h >= 3 ? 660 : 440, .08);
+    dirty = true;
+  }
+
+  // ---------- 그리기 ----------
+  function makeFelt(){
+    const c = document.createElement('canvas'); c.width = c.height = 192;
+    const g = c.getContext('2d');
+    g.fillStyle = '#1D3A33'; g.fillRect(0,0,192,192);
+    let s = 7;
+    const r = () => (s = (s*16807) % 2147483647) / 2147483647;
+    for (let i = 0; i < 2600; i++){
+      g.fillStyle = r() < .5 ? `rgba(255,255,255,${.015+r()*.03})` : `rgba(0,0,0,${.03+r()*.05})`;
+      g.fillRect(r()*192, r()*192, 1+r()*1.5, 1+r()*1.5);
+    }
+    felt = ctx.createPattern(c, 'repeat');
+  }
+  // 두 사진을 나란히(또는 위아래로) 가장 크게
+  function layout(){
+    W = Math.max(1, stage.clientWidth); H = Math.max(1, stage.clientHeight);
+    const sw = Math.round(Math.min(150, Math.max(104, W*.1)));
+    stage.style.setProperty('--side', sw + 'px');
+    dpr = Math.min(2, window.devicePixelRatio || 1);
+    cv.width = Math.round(W*dpr); cv.height = Math.round(H*dpr);
+    if (!felt) makeFelt();
+    if (G){
+      const aw = W - sw, iw = G.base.width, ih = G.base.height, pad = 10, gap = 14;
+      const sSide = Math.min((aw - 2*pad - gap)/(2*iw), (H - 2*pad)/ih);
+      const sStack = Math.min((aw - 2*pad)/iw, (H - 2*pad - gap)/(2*ih));
+      if (sSide >= sStack){
+        S = sSide; const tw = 2*iw*S + gap, x0 = (aw - tw)/2;
+        AX = x0; BX = x0 + iw*S + gap; AY = BY = (H - ih*S)/2;
+      } else {
+        S = sStack; const th = 2*ih*S + gap, y0 = (H - th)/2;
+        AX = BX = (aw - iw*S)/2; AY = y0; BY = y0 + ih*S + gap;
+      }
+    }
+    dirty = true;
+  }
+  function ring(x, y, r, color, width, dash){
+    ctx.save();
+    ctx.setLineDash(dash || []);
+    ctx.lineWidth = width + 3; ctx.strokeStyle = 'rgba(0,0,0,.45)';
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI*2); ctx.stroke();
+    ctx.lineWidth = width; ctx.strokeStyle = color; ctx.stroke();
+    ctx.restore();
+  }
+  function onBoth(fn){
+    for (const [ox, oy] of [[AX, AY], [BX, BY]]){
+      ctx.save(); ctx.beginPath(); ctx.rect(ox, oy, G.base.width*S, G.base.height*S); ctx.clip();
+      fn(ox, oy); ctx.restore();
+    }
+  }
+  function draw(){
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.fillStyle = felt; ctx.fillRect(0, 0, W, H);
+    if (!G) return;
+    const bw = G.base.width*S, bh = G.base.height*S, now = performance.now();
+    ctx.drawImage(G.base, AX, AY, bw, bh);
+    ctx.drawImage(G.changed, BX, BY, bw, bh);
+    for (const [ox, oy] of [[AX, AY], [BX, BY]]){
+      ctx.strokeStyle = G.done ? '#D8A445' : 'rgba(236,229,211,.35)'; ctx.lineWidth = G.done ? 3 : 2;
+      ctx.strokeRect(ox-1, oy-1, bw+2, bh+2);
+    }
+    onBoth((ox, oy) => {
+      for (const d of G.diffs){
+        if (!d.f) continue;
+        const t = d.ft ? Math.min(1, (now - d.ft)/350) : 1;
+        if (t < 1) dirty = true;
+        ring(ox + d.x*S, oy + d.y*S, d.r*S*1.08*(1 + (1-t)*.5), '#D8A445', 4);
+      }
+    });
+    fx = fx.filter(f => now - f.t0 < f.dur);
+    for (const f of fx){
+      const t = (now - f.t0)/f.dur;
+      ctx.globalAlpha = f.kind === 'miss' ? 1 - t : Math.min(1, (1 - t)/.3);
+      if (f.kind === 'miss') ring(f.sx, f.sy, 10 + 26*t, 'rgba(236,229,211,.9)', 3);
+      else onBoth((ox, oy) => {
+        if (f.kind === 'exact'){
+          const on = .5 + .5*Math.sin(t*Math.PI*10);
+          ring(ox + f.x*S, oy + f.y*S, f.r*S, `rgba(255,214,110,${on})`, 6);
+        } else ring(ox + f.x*S, oy + f.y*S, f.r*S*(1 + .06*Math.sin(t*Math.PI*6)), '#FFD66E', 7, [16, 10]);
+      });
+      ctx.globalAlpha = 1;
+    }
+    if (fx.length) dirty = true;
+  }
+  function frame(){ if (dirty){ dirty = false; draw(); } requestAnimationFrame(frame); }
+
+  // ---------- 누르기 ----------
+  function local(e){
+    const r = cv.getBoundingClientRect();
+    // 세로 화면에서 90도 돌려 그렸으면 터치 위치도 돌려서 계산
+    return { x: turned.matches ? e.clientY - r.top : e.clientX - r.left, y: turned.matches ? r.right - e.clientX : e.clientY - r.top };
+  }
+  cv.addEventListener('pointerdown', e => {
+    if (!G) return;
+    if (G.done){ if (!showDone && !nexting) openDone(); return; }
+    wakeAudio(); wake();
+    const { x, y } = local(e), bw = G.base.width*S, bh = G.base.height*S;
+    let ox = null, oy = null;
+    if (x >= AX && x <= AX + bw && y >= AY && y <= AY + bh){ ox = AX; oy = AY; }
+    else if (x >= BX && x <= BX + bw && y >= BY && y <= BY + bh){ ox = BX; oy = BY; }
+    if (ox === null) return;
+    G.started = true;
+    const wx = (x - ox)/S, wy = (y - oy)/S, tol = 26/S;
+    let hit = null, bestD = Infinity;
+    for (const d of G.diffs){
+      if (d.f) continue;
+      const dist = Math.hypot(wx - d.x, wy - d.y);
+      if (dist < d.r*1.15 + tol && dist < bestD){ hit = d; bestD = dist; }
+    }
+    if (hit){
+      hit.f = 1; hit.ft = performance.now();
+      if (G.hintD === hit){ G.hintD = null; fx = fx.filter(f => f.kind === 'miss'); }
+      beep(784, .13);
+      syncStats();
+      if (foundN() === G.diffs.length) finish();
+      save();
+    } else {
+      fx.push({ kind: 'miss', sx: x, sy: y, t0: performance.now(), dur: 450 });
+      beep(220, .06);
+    }
+    dirty = true;
+  });
+
+  // ---------- 소리·화면 ----------
+  let ac = null;
+  function wakeAudio(){
+    try { ac = ac || new (window.AudioContext || window.webkitAudioContext)(); if (ac.state === 'suspended') ac.resume(); } catch(e){}
+  }
+  function beep(freq, dur){
+    if (!soundOn || !ac) return;
+    try {
+      const o = ac.createOscillator(), g = ac.createGain(), t = ac.currentTime;
+      o.type = 'triangle'; o.frequency.value = freq;
+      g.gain.setValueAtTime(.0001, t);
+      g.gain.exponentialRampToValueAtTime(.22, t + .006);
+      g.gain.exponentialRampToValueAtTime(.0001, t + dur);
+      o.connect(g).connect(ac.destination); o.start(t); o.stop(t + dur + .02);
+    } catch(e){}
+  }
+  let wl = null;
+  async function wake(){
+    try { if (!wl && navigator.wakeLock){ wl = await navigator.wakeLock.request('screen'); wl.addEventListener('release', () => { wl = null; }); } } catch(e){}
+  }
+
+  // ---------- 이어하기 저장 ----------
+  let saveWarned = false;
+  function save(){
+    if (!G || (!G.sample && !G.dataURL)) return;
+    const st = { v: 1, sample: G.sample, img: G.sample ? null : G.dataURL, level: G.level,
+      diffs: G.diffs.map(({ x, y, r, k, p, f }) => ({ x, y, r, k, p, f })), el: Math.round(G.elapsed), done: G.done };
+    if (!store.set(KEY, JSON.stringify(st)) && !saveWarned){
+      saveWarned = true;
+      toast('저장 공간이 부족해 진행 상황을 기억하지 못해요. 게임은 그대로 계속할 수 있어요.');
+    }
+  }
+  function boot(){
+    layout();
+    loadAlbum();
+    let st = null;
+    try { st = JSON.parse(store.get(KEY) || 'null'); } catch(e){}
+    const ok = st && st.v === 1 && LEVELS[st.level] && Array.isArray(st.diffs) && st.diffs.length;
+    if (ok) syncLevel(st.level);
+    if (ok && st.sample){ build(sampleImage(), st.level, true, null, st); return; }
+    if (ok && st.img){
+      const im = new Image();
+      im.onload = () => build(fit(im, 1400), st.level, false, st.img, st);
+      im.onerror = () => newGame(sampleImage(), level(), true);
+      im.src = st.img;
+      return;
+    }
+    newGame(sampleImage(), level(), true);
+  }
+
+  // ---------- 사진 ----------
+  function fit(im, max){
+    const s = Math.min(1, max / Math.max(im.naturalWidth || im.width, im.naturalHeight || im.height));
+    const c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round((im.naturalWidth || im.width)*s));
+    c.height = Math.max(1, Math.round((im.naturalHeight || im.height)*s));
+    c.getContext('2d').drawImage(im, 0, 0, c.width, c.height);
+    return c;
+  }
+  function sampleImage(){
+    const w = 1400, h = 1000, c = document.createElement('canvas'); c.width = w; c.height = h;
+    const g = c.getContext('2d');
+    let s = 11; const r = () => (s = (s*16807) % 2147483647) / 2147483647;
+    let gr = g.createLinearGradient(0, 0, 0, 640);
+    gr.addColorStop(0, '#4F8FC0'); gr.addColorStop(.55, '#9EC5DE'); gr.addColorStop(1, '#F4D6A6');
+    g.fillStyle = gr; g.fillRect(0, 0, w, h);
+    g.fillStyle = 'rgba(255,255,255,.9)';
+    for (const [x, y, k] of [[210,150,1],[560,95,.7],[870,190,.85],[1250,130,.6]])
+      for (const [ox, oy, rr] of [[0,0,60],[55,-22,48],[108,4,52],[-52,12,40],[48,26,50]]){
+        g.beginPath(); g.ellipse(x+ox*k, y+oy*k, rr*k*1.3, rr*k, 0, 0, Math.PI*2); g.fill();
+      }
+    g.fillStyle = '#F7D774'; g.beginPath(); g.arc(1120, 250, 70, 0, Math.PI*2); g.fill();
+    gr = g.createLinearGradient(0, 300, 0, 640);
+    gr.addColorStop(0, '#5E7F95'); gr.addColorStop(1, '#46697A');
+    g.fillStyle = gr; g.beginPath();
+    g.moveTo(0, 600); g.bezierCurveTo(260, 520, 490, 360, 630, 310); g.lineTo(700, 296); g.lineTo(775, 309);
+    g.bezierCurveTo(910, 360, 1140, 520, 1400, 580); g.lineTo(1400, 660); g.lineTo(0, 660); g.fill();
+    const hill = (x, y, rw, rh, col) => { g.fillStyle = col; g.beginPath(); g.ellipse(x, y, rw, rh, 0, Math.PI, 0); g.fill(); };
+    hill(200, 660, 240, 120, '#5C8D55'); hill(560, 665, 190, 90, '#6FA063'); hill(1020, 662, 290, 140, '#517C4B'); hill(1300, 668, 170, 80, '#679858');
+    g.fillStyle = '#76A95A'; g.fillRect(0, 655, w, 120);
+    gr = g.createLinearGradient(0, 770, 0, h);
+    gr.addColorStop(0, '#E8C23C'); gr.addColorStop(1, '#D9A91F');
+    g.fillStyle = gr; g.fillRect(0, 770, w, h-770);
+    for (let i = 0; i < 2400; i++){
+      const y = 790 + r()*(h-790), sz = 2 + (y-770)/230*5*r();
+      g.fillStyle = r() < .25 ? '#6E9A3E' : (r() < .5 ? '#FFE067' : '#F5CE35');
+      g.beginPath(); g.arc(r()*w, y, sz, 0, Math.PI*2); g.fill();
+    }
+    for (let x = -20; x < w + 40; x += 46 + r()*18){
+      const y = 765 + r()*8, rw = 26 + r()*14, rh = 18 + r()*8;
+      g.fillStyle = r() < .5 ? '#34393B' : '#2A2F31';
+      g.beginPath(); g.ellipse(x, y, rw, rh, r()*.6-.3, 0, Math.PI*2); g.fill();
+    }
+    // 집 한 채
+    g.fillStyle = '#E9E2D0'; g.fillRect(300, 560, 170, 110);
+    g.fillStyle = '#B8452F'; g.beginPath(); g.moveTo(280, 565); g.lineTo(385, 490); g.lineTo(490, 565); g.fill();
+    g.fillStyle = '#5B3A22'; g.fillRect(365, 610, 40, 60);
+    g.fillStyle = '#7FB3D6'; g.fillRect(318, 590, 34, 30); g.fillRect(420, 590, 34, 30);
+    return c;
+  }
+
+  // ---------- 사진 묶음 (폴더) ----------
+  let album = [], bag = [], curKey = null, importJob = 0, dbp = null;
+  function db(){
+    if (!dbp) dbp = new Promise((ok, no) => {
+      try {
+        const rq = indexedDB.open('diff', 1);
+        rq.onupgradeneeded = () => rq.result.createObjectStore('photos');
+        rq.onsuccess = () => ok(rq.result);
+        rq.onerror = () => no(rq.error);
+      } catch(e){ no(e); }
+    });
+    return dbp;
+  }
+  function idb(mode, fn){
+    return db().then(d => new Promise((ok, no) => {
+      const tx = d.transaction('photos', mode), r = fn(tx.objectStore('photos'));
+      tx.oncomplete = () => ok(r && r.result);
+      tx.onerror = tx.onabort = () => no(tx.error);
+    }));
+  }
+  function loadFit(blob){
+    return new Promise((ok, no) => {
+      const url = URL.createObjectURL(blob), im = new Image();
+      im.onload = () => { URL.revokeObjectURL(url); ok(fit(im, 1400)); };
+      im.onerror = () => { URL.revokeObjectURL(url); no(new Error('decode')); };
+      im.src = url;
+    });
+  }
+  const toJpeg = c => new Promise((ok, no) => c.toBlob(b => b ? ok(b) : no(new Error('blob')), 'image/jpeg', .85));
+  const isNum = k => typeof k === 'number';
+  function saveAlbum(){ store.set(ALBUM, JSON.stringify({ keys: album.filter(isNum), bag: bag.filter(isNum), cur: isNum(curKey) ? curKey : null })); }
+  function loadAlbum(){
+    try {
+      const a = JSON.parse(store.get(ALBUM) || 'null');
+      if (a && Array.isArray(a.keys)){ album = a.keys; bag = (a.bag || []).filter(k => album.includes(k)); curKey = a.cur; }
+    } catch(e){}
+    syncAlbum();
+  }
+  function syncAlbum(){
+    const n = album.length;
+    $('#album').hidden = !n;
+    $('#albumN').textContent = n;
+    $('#doneNext').hidden = !n;
+    $('#doneAgain').hidden = !!n;
+  }
+  async function useAlbum(list){
+    let files = [...list].filter(f => /^image\//.test(f.type) || /\.(jpe?g|png|webp|gif|bmp|avif)$/i.test(f.name));
+    if (!files.length){ toast('사진 파일이 없어요. 사진이 들어 있는 폴더를 골라 주세요.'); return; }
+    shuffle(files);
+    try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch(e){}
+    const job = ++importJob;
+    let first = -1, firstImg = null;
+    for (let i = 0; i < files.length && first < 0; i++){
+      try { firstImg = await loadFit(files[i]); first = i; } catch(e){}
+    }
+    if (job !== importJob) return;
+    if (first < 0){ toast('이 사진들은 열 수 없어요. 사진(JPG·PNG) 파일을 골라 주세요.'); return; }
+    saveWarned = false;
+    newGame(firstImg, level(), false);
+    let stored = true;
+    try { await idb('readwrite', st => st.clear()); } catch(e){ stored = false; }
+    if (job !== importJob) return;
+    if (!stored){
+      album = files.slice(first); curKey = album[0]; bag = album.slice(1);
+      syncAlbum(); saveAlbum();
+      toast(`사진 ${album.length}장으로 묶음을 만들었어요. (앱을 닫으면 묶음은 잊어요)`);
+      return;
+    }
+    album = []; bag = []; curKey = 0;
+    let key = 0;
+    for (let i = first; i < files.length; i++){
+      try {
+        const c = i === first ? firstImg : await loadFit(files[i]);
+        const blob = await toJpeg(c);
+        if (job !== importJob) return;
+        const k = key++;
+        await idb('readwrite', st => st.put(blob, k));
+        if (job !== importJob) return;
+        album.push(k); if (k !== curKey) bag.push(k);
+      } catch(e){ if (job !== importJob) return; }
+      if (album.length % 10 === 0){ syncAlbum(); saveAlbum(); if (files.length - first > 10) toast(`사진 묶음 정리 중… ${album.length}/${files.length - first}`); }
+    }
+    syncAlbum(); saveAlbum();
+    toast(`사진 ${album.length}장으로 묶음을 만들었어요. 다 찾으면 다른 사진이 나와요.`);
+  }
+  let nexting = false;
+  async function nextPhoto(){
+    stopAuto();
+    if (!album.length || nexting) return;
+    nexting = true;
+    try {
+      for (let tries = 0; tries < 6 && album.length; tries++){
+        if (!bag.length) bag = album.filter(k => k !== curKey);
+        if (!bag.length) bag = album.slice();
+        const k = bag.splice(Math.floor(Math.random()*bag.length), 1)[0];
+        try {
+          const blob = isNum(k) ? await idb('readonly', st => st.get(k)) : k;
+          if (!blob) throw new Error('missing');
+          const img = await loadFit(blob);
+          curKey = k; saveAlbum();
+          $('#done').hidden = true;
+          newGame(img, level(), false);
+          return;
+        } catch(e){ album = album.filter(x => x !== k); syncAlbum(); saveAlbum(); }
+      }
+      toast('다음 사진을 열지 못했어요. 사진을 다시 골라 주세요.');
+    } finally { nexting = false; }
+  }
+  function clearAlbum(){
+    importJob++; album = []; bag = []; curKey = null;
+    idb('readwrite', st => st.clear()).catch(() => {});
+    stopAuto(); syncAlbum(); saveAlbum();
+  }
+  let autoT = 0, autoN = 0;
+  function stopAuto(){ clearInterval(autoT); autoT = 0; $('#doneNext').textContent = '다른 사진으로'; }
+  function startAuto(){
+    stopAuto(); autoN = AUTO_SEC;
+    const b = $('#doneNext'), show = () => { b.textContent = `다른 사진으로 (${autoN})`; };
+    show();
+    autoT = setInterval(() => { if (document.hidden) return; if (--autoN <= 0) nextPhoto(); else show(); }, 1000);
+  }
+
+  // ---------- UI ----------
+  const fmt = ms => {
+    const t = Math.floor(ms/1000), hh = Math.floor(t/3600), mm = Math.floor(t/60) % 60, ss = String(t % 60).padStart(2, '0');
+    return hh ? `${hh}:${String(mm).padStart(2,'0')}:${ss}` : `${mm}:${ss}`;
+  };
+  function syncStats(){
+    if (!G) return;
+    const n = foundN();
+    $('#tm').textContent = fmt(G.elapsed);
+    $('#score').textContent = `${n}/${G.diffs.length}`;
+    const dots = $('#dots');
+    if (dots.children.length !== G.diffs.length){ dots.textContent = ''; G.diffs.forEach(() => dots.appendChild(document.createElement('i'))); }
+    [...dots.children].forEach((d, i) => d.classList.toggle('on', i < n));
+  }
+  function syncUI(){
+    syncLevel(G.level);
+    $('#done').hidden = !(G.done && showDone);
+    $('#hint').hidden = G.done;
+    $('#dTm').textContent = fmt(G.elapsed);
+    $('#dPc').textContent = `${G.diffs.length}곳`;
+    syncStats(); dirty = true;
+  }
+  let toastT = 0;
+  function toast(msg){
+    const t = $('#toast'); t.textContent = msg; t.hidden = false;
+    clearTimeout(toastT); toastT = setTimeout(() => { t.hidden = true; }, 4200);
+  }
+  const toggle = (btn, on) => btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+
+  $('#file').addEventListener('change', e => {
+    const f = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (!f) return;
+    const url = URL.createObjectURL(f), im = new Image();
+    im.onload = () => { URL.revokeObjectURL(url); saveWarned = false; newGame(fit(im, 1400), level(), false); };
+    im.onerror = () => { URL.revokeObjectURL(url); toast('이 파일은 열 수 없어요. 사진(JPG·PNG) 파일을 골라 주세요.'); };
+    im.src = url;
+  });
+  $('#dir').addEventListener('change', e => {
+    const fs = e.target.files ? [...e.target.files] : [];
+    e.target.value = '';
+    if (fs.length) useAlbum(fs);
+  });
+  // 아이폰·아이패드는 폴더 고르기가 안 돼서 같은 버튼이 여러 장 고르기가 된다
+  const iOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  if (!('webkitdirectory' in $('#dir')) || iOS){
+    const d = $('#dir'); d.removeAttribute('webkitdirectory'); d.accept = 'image/*';
+    $('#dirLbl').textContent = '사진 여러 장 고르기';
+  }
+  $('#next').addEventListener('click', nextPhoto);
+  $('#doneNext').addEventListener('click', nextPhoto);
+  const clr = $('#albumClear');
+  let clrT = 0;
+  clr.addEventListener('click', () => {
+    if (clr.dataset.armed !== '1'){
+      clr.dataset.armed = '1'; clr.textContent = '한 번 더 누르면 비워요';
+      clearTimeout(clrT); clrT = setTimeout(() => { clr.dataset.armed = '0'; clr.textContent = '묶음 비우기'; }, 2600);
+      return;
+    }
+    clearTimeout(clrT); clr.dataset.armed = '0'; clr.textContent = '묶음 비우기';
+    clearAlbum();
+  });
+  $('#level').addEventListener('click', e => {
+    const b = e.target.closest('[data-v]');
+    if (!b || !G || +b.dataset.v === G.level) return;
+    syncLevel(+b.dataset.v);
+    newGame(G.base, +b.dataset.v, G.sample, G.dataURL);
+  });
+  $('#hint').addEventListener('click', hint);
+  $('#sound').addEventListener('click', e => { soundOn = !soundOn; toggle(e.currentTarget, soundOn); if (soundOn){ wakeAudio(); beep(660, .08); } });
+  const again = $('#again');
+  let armT = 0;
+  const disarm = () => { again.dataset.armed = '0'; again.textContent = '새로 바꾸기'; };
+  again.addEventListener('click', () => {
+    if (!G) return;
+    if (foundN() > 0 && !G.done && again.dataset.armed !== '1'){
+      again.dataset.armed = '1'; again.textContent = '한 번 더 누르면 바꿔요';
+      clearTimeout(armT); armT = setTimeout(disarm, 2600);
+      return;
+    }
+    clearTimeout(armT); disarm();
+    newGame(G.base, G.level, G.sample, G.dataURL);
+  });
+  $('#doneAgain').addEventListener('click', () => { stopAuto(); newGame(G.base, G.level, G.sample, G.dataURL); });
+  $('#gear').addEventListener('click', () => { stopAuto(); syncStats(); $('#menu').hidden = false; });
+  $('#menuClose').addEventListener('click', () => { $('#menu').hidden = true; });
+  const fullBtn = $('#full'), fsEl = document.documentElement;
+  if (!(fsEl.requestFullscreen || fsEl.webkitRequestFullscreen)) fullBtn.hidden = true;
+  fullBtn.addEventListener('click', () => {
+    try {
+      if (document.fullscreenElement || document.webkitFullscreenElement) (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+      else { const r = (fsEl.requestFullscreen || fsEl.webkitRequestFullscreen).call(fsEl); if (r && r.catch) r.catch(() => toast('이 기기에서는 전체 화면을 쓸 수 없어요.')); }
+    } catch(e){ toast('이 기기에서는 전체 화면을 쓸 수 없어요.'); }
+    $('#menu').hidden = true;
+  });
+  $('#doneClose').addEventListener('click', () => { stopAuto(); showDone = false; $('#done').hidden = true; });
+
+  let last = performance.now();
+  setInterval(() => {
+    const now = performance.now();
+    if (G && G.started && !G.done && !document.hidden){ G.elapsed += now - last; syncStats(); }
+    last = now;
+  }, 500);
+  document.addEventListener('visibilitychange', () => {
+    last = performance.now();
+    if (document.hidden) save(); else if (G && G.started) wake();
+  });
+  window.addEventListener('pagehide', save);
+  new ResizeObserver(layout).observe(stage);
+
+  boot();
+  requestAnimationFrame(frame);
+})();
+</script>
+
+<script>
+  if (matchMedia('(display-mode: fullscreen), (display-mode: standalone)').matches){ const b = document.getElementById('full'); if (b) b.hidden = true; }
+  if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+</script>
+</body>
+</html>
