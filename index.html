@@ -39,10 +39,7 @@
     -webkit-user-select:none;user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent;
   }
   .app{position:relative;height:100%}
-  /* 화면이 세로면 게임 화면 전체를 90도 돌려 세로 화면을 꽉 채운다 — 태블릿을 옆으로 돌려 들면 가로 화면처럼 보임 (자동회전 꺼도 됨) */
-  @media (orientation:portrait){
-    .app{position:fixed;top:0;left:100vw;width:100vh;height:100vw;transform-origin:0 0;transform:rotate(90deg)}
-  }
+  /* 이 게임은 다른 게임과 달리 세로 화면을 돌리지 않는다 — 세로면 두 사진을 위아래로 크게, 버튼 띠는 아래에 */
   .btn{
     display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:58px;padding:0 18px;
     border-radius:12px;border:1px solid var(--line);background:var(--chip);color:var(--ink);
@@ -72,6 +69,11 @@
   .dots{display:flex;flex-wrap:wrap;justify-content:center;gap:6px}
   .dots i{width:16px;height:16px;border-radius:50%;border:2px solid var(--brass)}
   .dots i.on{background:var(--brass)}
+  @media (orientation:portrait){
+    .side{left:0;top:auto;width:auto;height:var(--side);flex-direction:row;align-items:center;padding:10px 14px;border-left:0;border-top:1px solid var(--line)}
+    .side .btn{flex:0 0 auto;min-width:130px;padding:0 22px}
+    .score{flex-direction:row;gap:12px}
+  }
   .veil{position:absolute;inset:0;display:grid;place-items:center;padding:16px;background:rgba(6,16,13,.55);overflow:auto}
   .card{
     width:min(100%,460px);padding:26px 24px 24px;border-radius:18px;
@@ -119,7 +121,7 @@
           <input id="dir" class="vh" type="file" webkitdirectory multiple>
           <label for="dir" class="btn wide" id="dirLbl">폴더 고르기</label>
           <div class="album wide" id="album" hidden>
-            <p class="note">사진 묶음 <b id="albumN">0</b>장 · 다 찾으면 이 중에서 다른 사진이 나와요</p>
+            <p class="note">사진 묶음 <b id="albumN">0</b>장 · 다 찾으면 이 중에서 다른 사진이 나와요 (사진 퍼즐·숨은그림에 넣은 사진도 함께 써요)</p>
             <div class="grid2">
               <button id="next" class="btn" type="button">다른 사진으로</button>
               <button id="albumClear" class="btn" type="button">묶음 비우기</button>
@@ -324,20 +326,21 @@
   // 두 사진을 나란히(또는 위아래로) 가장 크게
   function layout(){
     W = Math.max(1, stage.clientWidth); H = Math.max(1, stage.clientHeight);
-    const sw = Math.round(Math.min(150, Math.max(104, W*.1)));
+    // 가로 화면이면 버튼 띠를 오른쪽에, 세로 화면이면 아래에
+    const tall = turned.matches, sw = tall ? 88 : Math.round(Math.min(150, Math.max(104, W*.1)));
     stage.style.setProperty('--side', sw + 'px');
     dpr = Math.min(2, window.devicePixelRatio || 1);
     cv.width = Math.round(W*dpr); cv.height = Math.round(H*dpr);
     if (!felt) makeFelt();
     if (G){
-      const aw = W - sw, iw = G.base.width, ih = G.base.height, pad = 10, gap = 14;
-      const sSide = Math.min((aw - 2*pad - gap)/(2*iw), (H - 2*pad)/ih);
-      const sStack = Math.min((aw - 2*pad)/iw, (H - 2*pad - gap)/(2*ih));
+      const aw = tall ? W : W - sw, ah = tall ? H - sw : H, iw = G.base.width, ih = G.base.height, pad = 10, gap = 14;
+      const sSide = Math.min((aw - 2*pad - gap)/(2*iw), (ah - 2*pad)/ih);
+      const sStack = Math.min((aw - 2*pad)/iw, (ah - 2*pad - gap)/(2*ih));
       if (sSide >= sStack){
         S = sSide; const tw = 2*iw*S + gap, x0 = (aw - tw)/2;
-        AX = x0; BX = x0 + iw*S + gap; AY = BY = (H - ih*S)/2;
+        AX = x0; BX = x0 + iw*S + gap; AY = BY = (ah - ih*S)/2;
       } else {
-        S = sStack; const th = 2*ih*S + gap, y0 = (H - th)/2;
+        S = sStack; const th = 2*ih*S + gap, y0 = (ah - th)/2;
         AX = BX = (aw - iw*S)/2; AY = y0; BY = y0 + ih*S + gap;
       }
     }
@@ -396,8 +399,7 @@
   // ---------- 누르기 ----------
   function local(e){
     const r = cv.getBoundingClientRect();
-    // 세로 화면에서 90도 돌려 그렸으면 터치 위치도 돌려서 계산
-    return { x: turned.matches ? e.clientY - r.top : e.clientX - r.left, y: turned.matches ? r.right - e.clientX : e.clientY - r.top };
+    return { x: e.clientX - r.left, y: e.clientY - r.top };
   }
   cv.addEventListener('pointerdown', e => {
     if (!G) return;
@@ -469,7 +471,7 @@
     try { st = JSON.parse(store.get(KEY) || 'null'); } catch(e){}
     const ok = st && st.v === 1 && LEVELS[st.level] && Array.isArray(st.diffs) && st.diffs.length;
     if (ok) syncLevel(st.level);
-    if (ok && st.sample){ build(sampleImage(), st.level, true, null, st); return; }
+    if (ok && st.sample){ build(sampleImage(), st.level, true, null, st); tryBorrow(); return; }
     if (ok && st.img){
       const im = new Image();
       im.onload = () => build(fit(im, 1400), st.level, false, st.img, st);
@@ -478,6 +480,17 @@
       return;
     }
     newGame(sampleImage(), level(), true);
+    tryBorrow();
+  }
+  // 아직 내 사진이 없으면 사진 퍼즐·숨은그림에 넣어 둔 사진으로 바로 시작
+  async function tryBorrow(){
+    if (album.length || store.get(BORROW_OFF)) return;
+    const { keys, from } = await borrow();
+    if (!keys.length || album.length || (G && !G.sample)) return;
+    album = keys; bag = shuffle(keys.slice()); curKey = null;
+    syncAlbum(); saveAlbum();
+    await nextPhoto();
+    toast(`${from.join('·')}에 넣어 둔 사진 ${keys.length}장으로 해요.`);
   }
 
   // ---------- 사진 ----------
@@ -560,8 +573,52 @@
     });
   }
   const toJpeg = c => new Promise((ok, no) => c.toBlob(b => b ? ok(b) : no(new Error('blob')), 'image/jpeg', .85));
-  const isNum = k => typeof k === 'number';
+  // 묶음 열쇠: 숫자 = 이 앱에 넣은 사진, 'jigsaw:3' 같은 글자 = 사진 퍼즐·숨은그림 앱에 넣어 둔 사진
+  const isNum = k => typeof k === 'number' || (typeof k === 'string' && /^\w+:\d+$/.test(k));
   function saveAlbum(){ store.set(ALBUM, JSON.stringify({ keys: album.filter(isNum), bag: bag.filter(isNum), cur: isNum(curKey) ? curKey : null })); }
+
+  // ---------- 다른 게임에 넣어 둔 사진 빌려 쓰기 ----------
+  // 사진 퍼즐·숨은그림 앱은 같은 주소(github.io)라 그 앱들이 기기에 저장한 사진을 읽을 수 있다
+  const SHARED = [['jigsaw', '사진 퍼즐'], ['hidden', '숨은그림 찾기']], BORROW_OFF = 'diff.borrowOff';
+  const others = {};
+  function otherDb(name){
+    if (!others[name]) others[name] = (async () => {
+      // 없는 이름을 열면 빈 저장소가 새로 생겨 그 앱이 망가지므로, 있는지 먼저 본다
+      if (!indexedDB.databases) return null;
+      const list = await indexedDB.databases();
+      if (!list.some(d => d.name === name)) return null;
+      return await new Promise(ok => {
+        try {
+          const rq = indexedDB.open(name);
+          rq.onsuccess = () => { const d = rq.result; if (d.objectStoreNames.contains('photos')) ok(d); else { d.close(); ok(null); } };
+          rq.onerror = () => ok(null);
+        } catch(e){ ok(null); }
+      });
+    })().catch(() => null);
+    return others[name];
+  }
+  function otherGet(name, mode, fn){
+    return otherDb(name).then(d => new Promise((ok, no) => {
+      if (!d) return no(new Error('none'));
+      const tx = d.transaction('photos', mode), r = fn(tx.objectStore('photos'));
+      tx.oncomplete = () => ok(r && r.result);
+      tx.onerror = tx.onabort = () => no(tx.error);
+    }));
+  }
+  function photoBlob(k){
+    if (typeof k === 'string'){ const [name, n] = k.split(':'); return otherGet(name, 'readonly', st => st.get(+n)); }
+    return idb('readonly', st => st.get(k));
+  }
+  async function borrow(){
+    const keys = [], from = [];
+    for (const [name, label] of SHARED){
+      try {
+        const ks = await otherGet(name, 'readonly', st => st.getAllKeys());
+        if (ks && ks.length){ keys.push(...ks.map(k => `${name}:${k}`)); from.push(label); }
+      } catch(e){}
+    }
+    return { keys, from };
+  }
   function loadAlbum(){
     try {
       const a = JSON.parse(store.get(ALBUM) || 'null');
@@ -627,7 +684,7 @@
         if (!bag.length) bag = album.slice();
         const k = bag.splice(Math.floor(Math.random()*bag.length), 1)[0];
         try {
-          const blob = isNum(k) ? await idb('readonly', st => st.get(k)) : k;
+          const blob = isNum(k) ? await photoBlob(k) : k;
           if (!blob) throw new Error('missing');
           const img = await loadFit(blob);
           curKey = k; saveAlbum();
@@ -640,6 +697,8 @@
     } finally { nexting = false; }
   }
   function clearAlbum(){
+    // 빌려 쓴 사진을 비웠으면 다음에 열 때 다시 빌려 오지 않는다 (다른 앱의 사진은 지우지 않음)
+    if (album.some(k => typeof k === 'string')) store.set(BORROW_OFF, '1');
     importJob++; album = []; bag = []; curKey = null;
     idb('readwrite', st => st.clear()).catch(() => {});
     stopAuto(); syncAlbum(); saveAlbum();
