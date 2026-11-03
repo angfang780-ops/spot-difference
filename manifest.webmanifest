@@ -2,6 +2,7 @@
   "name": "틀린 그림 찾기",
   "short_name": "틀린그림",
   "lang": "ko",
+  "id": "/spot-difference/app2",
   "start_url": "./",
   "scope": "./",
   "display": "fullscreen",
