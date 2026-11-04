@@ -158,7 +158,7 @@
           <button id="full" class="btn wide" type="button">전체 화면</button>
         </div>
         <p class="note" id="stat">시간 <b id="tm">0:00</b> · 왼쪽과 오른쪽 사진에서 다른 곳을 눌러요 · 「힌트」는 여러 번 누를수록 더 정확히 알려 줘요</p>
-        <p class="note">버전 11월 4일 · 5문제 · 일러스트</p>
+        <p class="note">버전 11월 5일 · 5문제 · 일러스트(두 그림 비교)</p>
         <button id="menuClose" class="btn primary" type="button">닫고 찾기</button>
       </div>
     </div>
@@ -770,18 +770,144 @@
     return { diffs, changed: c };
   }
 
+  // ---------- 두 그림이 나란히 있는 캡처: 진짜 틀린 곳을 두 그림 비교로 찾는다 ----------
+  // 틀린그림 영상 화면처럼 왼쪽·오른쪽 그림이 한 장에 나란히 있으면, 가운데 경계선으로 나누고
+  // 1~2픽셀 어긋남을 맞춘 뒤 색이 다른 곳을 덩어리로 묶어 정답 자리로 쓴다
+  function pairDiffs(img){
+    const w = img.width, h = img.height;
+    if (w/h < 1.6) return null; // 가로로 긴 그림만 (두 그림 나란히)
+    const c = document.createElement('canvas'); c.width = w; c.height = h;
+    const g = c.getContext('2d', { willReadFrequently: true }); g.drawImage(img, 0, 0);
+    const px = g.getImageData(0, 0, w, h).data;
+    // 1) 가운데 근처에서 위아래로 색이 거의 같은 세로줄(경계선) 찾기
+    let best = -1, bestV = Infinity;
+    const vari = x => { let s = 0, s2 = 0, n = 0; for (let y = 0; y < h; y += 3){ const p = (y*w + x)*4, l = px[p] + px[p+1] + px[p+2]; s += l; s2 += l*l; n++; } return s2/n - (s/n)**2; };
+    const vs = [];
+    for (let x = Math.round(w*.44); x <= Math.round(w*.56); x++){ const v = vari(x); vs.push([x, v]); if (v < bestV){ bestV = v; best = x; } }
+    let l = best, r = best;
+    while (l > w*.4 && vari(l - 1) < bestV*4 + 400) l--;
+    while (r < w*.6 && vari(r + 1) < bestV*4 + 400) r++;
+    const lw = l, rx = r + 1, pw = Math.min(lw, w - rx);
+    if (pw < w*.35) return null;
+    // 2) 오른쪽 그림이 몇 픽셀 어긋났는지 맞추기 (작게 줄여서)
+    const S = 4, sw = Math.floor(pw/S), shh = Math.floor(h/S);
+    const lum = (x, y) => { const p = (y*w + x)*4; return px[p] + px[p+1] + px[p+2]; };
+    // 오른쪽 그림 위치 = rx + dx + x*sc, dy + y*sc (영상마다 두 그림 크기가 조금 다를 수 있어 배율 sc도 찾는다)
+    // st: 몇 칸마다 볼지 (거칠게 찾을 땐 듬성듬성). 가장자리 10%는 자르기 자국이 있어 뺀다
+    const err = (dx, dy, sx, sy, st) => {
+      let e = 0, n = 0;
+      for (let y = Math.round(shh*.1); y < shh*.9; y += st) for (let x = Math.round(sw*.1); x < sw*.9; x += st){
+        const yy = y*S, xx = x*S;
+        e += Math.abs(lum(xx, yy) - lum(Math.min(w-1, Math.max(0, Math.round(rx + dx + xx*sx))), Math.min(h-1, Math.max(0, Math.round(dy + yy*sy))))); n++;
+      }
+      return e/n;
+    };
+    let bdx = 0, bdy = 0, bsc = 1, bsy = 1, bErr = Infinity;
+    // 처음엔 넓게·거칠게 (영상마다 두 그림 위치·크기가 꽤 다를 수 있음), 그다음 점점 좁고 촘촘하게
+    for (let sc = .95; sc <= 1.0501; sc += .01) for (let dy = -40; dy <= 40; dy += 4) for (let dx = -40; dx <= 40; dx += 4){
+      const e = err(dx, dy, sc, sc, 4); if (e < bErr){ bErr = e; bdx = dx; bdy = dy; bsc = bsy = sc; }
+    }
+    for (const [R, st, SR, ss, k] of [[4, 1, .01, .002, 2], [1, .25, .002, .0005, 1]]){
+      const c0 = [bdx, bdy, bsc]; bErr = err(bdx, bdy, bsc, bsc, k);
+      for (let sc = c0[2] - SR; sc <= c0[2] + SR + 1e-9; sc += ss) for (let dy = c0[1] - R; dy <= c0[1] + R; dy += st) for (let dx = c0[0] - R; dx <= c0[0] + R; dx += st){
+        const e = err(dx, dy, sc, sc, k); if (e < bErr){ bErr = e; bdx = dx; bdy = dy; bsc = bsy = sc; }
+      }
+    }
+    // 가로·세로 배율이 조금 다를 수 있어 따로 다듬기 (가로 맞추고 세로 맞추기를 몇 번 번갈아)
+    for (let it = 0; it < 3; it++){
+      const [cx, cy, cs, ct] = [bdx, bdy, bsc, bsy];
+      for (let sx = cs - .004; sx <= cs + .0041; sx += .0005) for (let dx = cx - 2; dx <= cx + 2; dx += .25){ const e = err(dx, cy, sx, ct, 1); if (e < bErr){ bErr = e; bdx = dx; bsc = sx; } }
+      for (let sy = ct - .004; sy <= ct + .0041; sy += .0005) for (let dy = cy - 2; dy <= cy + 2; dy += .25){ const e = err(bdx, dy, bsc, sy, 1); if (e < bErr){ bErr = e; bdy = dy; bsy = sy; } }
+    }
+    // 3) 두 그림을 잘라 낸다 (오른쪽은 찾은 위치·배율로 맞춰서)
+    const left = document.createElement('canvas'); left.width = pw; left.height = h; left.getContext('2d').drawImage(img, 0, 0, pw, h, 0, 0, pw, h);
+    const right = document.createElement('canvas'); right.width = pw; right.height = h; right.getContext('2d').drawImage(img, rx + bdx, bdy, pw*bsc, h*bsy, 0, 0, pw, h);
+    // 4) 두 그림을 칸(S픽셀)으로 줄여서, 칸마다 「상대 그림의 바로 옆 칸들 중 가장 비슷한 칸」과의 차이를 잰다
+    //    — 영상 속 두 그림은 크기·위치가 1~2픽셀씩 어긋나 있어서, 그냥 비교하면 모든 테두리 선이 다르다고 나온다
+    //    점 하나하나(Q픽셀 단위)로 비교해 W2점 안의 가장 비슷한 점과의 차이를 구하고, D×D 칸마다 평균을 낸다
+    //    (칸으로 먼저 줄이면 선이 칸에 걸친 정도가 두 그림에서 달라서 선마다 차이가 생긴다)
+    const P = Object.assign({ D: 4, Q: 1, T: 60, W2: 2, er: 7, cmin: 3, mx: 100, avg: 140, minC: 3, GR: 2, big: .03 }, window.__pairOpt || {}), D = P.D, Q = P.Q;
+    const gw = Math.floor(pw/D), gh = Math.floor(h/D), fw = Math.floor(pw/Q), fh = Math.floor(h/Q);
+    const small = cv => { const c2 = document.createElement('canvas'); c2.width = fw; c2.height = fh; const g2 = c2.getContext('2d', { willReadFrequently: true }); g2.imageSmoothingQuality = 'high'; g2.drawImage(cv, 0, 0, fw, fh); return g2.getImageData(0, 0, fw, fh).data; };
+    const Ls = small(left), Rs = small(right), cell = new Float32Array(gw*gh), W2 = P.W2;
+    const nearest = (A, B, x, y) => {
+      const p = (y*fw + x)*4; let m = Infinity;
+      for (let dy = -W2; dy <= W2; dy++){ const yy = y + dy; if (yy < 0 || yy >= fh) continue;
+        for (let dx = -W2; dx <= W2; dx++){
+          const xx = x + dx; if (xx < 0 || xx >= fw) continue;
+          const q = (yy*fw + xx)*4, d = Math.abs(A[p] - B[q]) + Math.abs(A[p+1] - B[q+1]) + Math.abs(A[p+2] - B[q+2]);
+          if (d < m){ m = d; if (m < 30) return m; }
+        } }
+      return m;
+    };
+    const cnt = new Uint16Array(gw*gh);
+    for (let y = 0; y < fh; y++){ const cy = Math.floor(y*Q/D); if (cy >= gh) continue;
+      for (let x = 0; x < fw; x++){ const cx = Math.floor(x*Q/D); if (cx >= gw) continue;
+        const i = cy*gw + cx; cell[i] += Math.max(nearest(Ls, Rs, x, y), nearest(Rs, Ls, x, y)); cnt[i]++; } }
+    for (let i = 0; i < gw*gh; i++) if (cnt[i]) cell[i] /= cnt[i];
+    const mask = new Uint8Array(gw*gh), M = 3; // 가장자리 몇 칸은 자르기 자국이라 뺀다
+    for (let gy = M; gy < gh - M; gy++) for (let gx = M; gx < gw - M; gx++) if (cell[gy*gw + gx] > P.T) mask[gy*gw + gx] = 1;
+    // 「꽉 찬 칸」: 둘레 3×3 칸 대부분이 다른 곳 — 진짜 틀린 곳(색 덩어리)은 이런 칸이 있고, 선 어긋남(가는 줄)은 거의 없다
+    const core = new Uint8Array(gw*gh);
+    for (let gy = 1; gy < gh - 1; gy++) for (let gx = 1; gx < gw - 1; gx++){ const i = gy*gw + gx; if (!mask[i]) continue; let n = 0; for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (mask[i + dy*gw + dx]) n++; if (n >= P.er) core[i] = 1; }
+    // 길고 가는 줄(그림 가장자리·경계선이 어긋난 자국)은 통째로 지운다
+    { const seen = new Uint8Array(gw*gh);
+      for (let i = 0; i < gw*gh; i++){ if (!mask[i] || seen[i]) continue;
+        const st = [i], cells = []; seen[i] = 1; let x0 = gw, y0 = gh, x1 = 0, y1 = 0;
+        while (st.length){ const q = st.pop(), x = q % gw, y = (q - x)/gw; cells.push(q); if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+          for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++){ const xx = x + dx, yy = y + dy; if (xx < 0 || yy < 0 || xx >= gw || yy >= gh) continue; const nq = yy*gw + xx; if (mask[nq] && !seen[nq]){ seen[nq] = 1; st.push(nq); } } }
+        const bw = x1 - x0 + 1, bh = y1 - y0 + 1;
+        if (Math.max(bw, bh) >= 15 && cells.length < Math.max(bw, bh)*2.5) for (const q of cells) mask[q] = 0;
+      } }
+    // 가까운 칸끼리 이어지게 넓힌 뒤 덩어리 나누기
+    const grow = new Uint8Array(gw*gh), GR = P.GR;
+    for (let i = 0; i < gw*gh; i++) if (mask[i]){ const x = i % gw, y = (i - x)/gw; for (let dy = -GR; dy <= GR; dy++) for (let dx = -GR; dx <= GR; dx++){ const xx = x + dx, yy = y + dy; if (xx >= 0 && yy >= 0 && xx < gw && yy < gh) grow[yy*gw + xx] = 1; } }
+    const lab = new Int32Array(gw*gh).fill(-1), regs = [];
+    for (let i = 0; i < gw*gh; i++){
+      if (!grow[i] || lab[i] >= 0) continue;
+      const st = [i]; lab[i] = regs.length; let n = 0, strong = 0, solid = 0, sum = 0, mx = 0, x0 = gw, y0 = gh, x1 = 0, y1 = 0;
+      while (st.length){
+        const q = st.pop(), x = q % gw, y = (q - x)/gw; n++; if (core[q] && mask[q]) solid++; if (mask[q]){ strong++; sum += cell[q]; if (cell[q] > mx) mx = cell[q]; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+        for (const nq of [x > 0 ? q-1 : -1, x < gw-1 ? q+1 : -1, y > 0 ? q-gw : -1, y < gh-1 ? q+gw : -1]) if (nq >= 0 && grow[nq] && lab[nq] < 0){ lab[nq] = lab[i]; st.push(nq); }
+      }
+      regs.push({ strong, solid, avg: strong ? sum/strong : 0, mx, x0, y0, x1, y1 });
+    }
+    // 아주 작은 차이(영상 압축 얼룩)와 꽉 찬 칸이 거의 없는 덩어리(선 어긋남)는 빼고, 큰 것부터 최대 7곳
+    const minCells = P.minC != null ? P.minC : Math.max(6, gw*gh*.0004);
+    regs.forEach(r => { r.thk = r.strong/Math.max(r.x1 - r.x0 + 1, r.y1 - r.y0 + 1); }); // 두께: 가는 줄은 1~1.5, 덩어리는 더 두껍다
+    // 진짜 틀린 곳은 색이 확 다른 칸이 꼭 있다(가장 큰 차이 mx가 크다). 선 어긋남은 차이가 고만고만하다
+    //    덩어리(꽉 찬 칸 cmin개 이상)이거나, 가늘어도 평균 차이가 아주 크면(선 하나가 없어진 것 등) 틀린 곳으로 본다
+    const found = regs.filter(r => r.strong >= minCells && ((r.solid >= P.cmin && r.mx >= P.mx) || (r.avg >= P.avg && r.mx >= 2*P.mx))).sort((a, b) => b.strong - a.strong).slice(0, 7);
+    // 너무 큰 덩어리가 있으면 두 그림이 제대로 안 맞은 것(캡처가 화면 전환 중 등) — 이 그림은 쓰지 않는다
+    //   (이때는 왼쪽 그림만 넘겨서 일러스트 방식으로 다른 곳을 만든다)
+    if (!found.length || found.some(r => r.strong > gw*gh*P.big)) return { left, failed: true };
+    const diffs = found.map(r => {
+      const cx = (r.x0 + r.x1 + 1)/2*D, cy = (r.y0 + r.y1 + 1)/2*D, rad = Math.max((r.x1 - r.x0 + 1)*D, (r.y1 - r.y0 + 1)*D)*.6;
+      return { x: Math.round(cx), y: Math.round(cy), r: Math.round(Math.max(28, rad)), k: 'pair', f: 0 };
+    });
+    return { left, right, diffs, cell, mask, regs, gw, gh, bdx, bdy, bsc, bsy, sep: [lw, rx] };
+  }
+  window.__pairDiffs = pairDiffs; // 점검용
+
   // ---------- 게임 ----------
   // kind: 'illust'이면 일러스트 방식(색 덩어리), 아니면 사진 방식 / chgImg: 이어하기 때 저장해 둔 바뀐 그림
   function build(base, level, sample, dataURL, saved, kind, chgImg){
     let diffs, changed;
-    if (kind === 'illust'){
+    // 두 그림이 나란히 있는 캡처면 진짜 틀린 곳을 쓴다 (난이도와 상관없이 그림에 있는 만큼)
+    let pair = kind === 'illust' ? pairDiffs(base) : null;
+    if (pair && pair.failed){ var full = base; base = pair.left; pair = null; } // 두 그림 비교가 안 되면 왼쪽 그림으로 일러스트 방식
+    if (pair){
+      var full = base; base = pair.left; changed = pair.right; diffs = pair.diffs;
+      if (saved && Array.isArray(saved.diffs) && saved.diffs.length === diffs.length) diffs.forEach((d, i) => { d.f = saved.diffs[i].f; });
+    } else if (kind === 'illust'){
       if (saved && chgImg){ diffs = saved.diffs; changed = chgImg; }
       else ({ diffs, changed } = regionDiffs(base, level));
       if (!diffs.length){ toast('이 그림에서는 다른 곳을 만들기 어려워요. 다른 그림으로 해 볼게요.'); }
     } else { diffs = saved ? saved.diffs : plan(base, level); changed = paint(base, diffs); }
     G = { base, sample, dataURL, level, diffs, changed, illust: kind === 'illust', hintD: null,
           elapsed: saved ? saved.el || 0 : 0, done: !!(saved && saved.done), started: false };
-    if (G.illust){ try { G.chgURL = changed.toDataURL('image/jpeg', .9); } catch(e){} }
+    G.pair = !!pair; if (full) G.full = full; // 난이도·다시 하기 때 원래 나란한 그림으로
+    if (G.illust && !pair){ try { G.chgURL = changed.toDataURL('image/jpeg', .9); } catch(e){} }
     fx = [];
     startProblem();
     layout();
@@ -1390,7 +1516,7 @@
     if (!b || !G || +b.dataset.v === G.level) return;
     syncLevel(+b.dataset.v);
     if (G.art) buildArt(+b.dataset.v);
-    else newGame(G.base, +b.dataset.v, G.sample, G.dataURL, G.illust ? 'illust' : undefined);
+    else newGame(G.full || G.base, +b.dataset.v, G.sample, G.dataURL, G.illust ? 'illust' : undefined);
   });
   $('#hint').addEventListener('click', hint);
   $('#sound').addEventListener('click', e => { soundOn = !soundOn; toggle(e.currentTarget, soundOn); if (soundOn){ wakeAudio(); beep(660, .08); } });
@@ -1406,7 +1532,7 @@
     }
     clearTimeout(armT); disarm();
     if (G.art) buildArt(G.level);
-    else newGame(G.base, G.level, G.sample, G.dataURL, G.illust ? 'illust' : undefined);
+    else newGame(G.full || G.base, G.level, G.sample, G.dataURL, G.illust ? 'illust' : undefined);
   });
   $('#doneAgain').addEventListener('click', () => { stopAuto(); newRound(); });
   $('#gear').addEventListener('click', () => { stopAuto(); syncStats(); $('#menu').hidden = false; });
