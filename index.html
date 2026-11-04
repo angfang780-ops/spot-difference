@@ -74,6 +74,16 @@
     .side .btn{flex:0 0 auto;min-width:130px;padding:0 22px}
     .score{flex-direction:row;gap:12px}
   }
+  .qbar{position:absolute;left:0;top:0;right:var(--side);height:66px;display:flex;align-items:center;padding:6px 16px}
+  @media (orientation:portrait){ .qbar{right:0} }
+  .qtxt{display:flex;align-items:center;gap:12px;font-family:"Do Hyeon","IBM Plex Sans KR",sans-serif;font-size:32px;line-height:1;color:var(--ink)}
+  .qtxt b{color:var(--brass);font-weight:400}
+  .qno{padding:5px 12px;border-radius:10px;background:var(--brass);color:var(--brass-ink);font-size:24px}
+  .cheer{
+    position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:2;pointer-events:none;
+    font-family:"Do Hyeon","IBM Plex Sans KR",sans-serif;font-size:min(16vh,120px);line-height:1;color:var(--brass);
+    -webkit-text-stroke:3px #2A1D06;text-shadow:0 8px 24px rgba(0,0,0,.6)
+  }
   .veil{position:absolute;inset:0;display:grid;place-items:center;padding:16px;background:rgba(8,12,20,.55);overflow:auto}
   .card{
     width:min(100%,460px);padding:26px 24px 24px;border-radius:18px;
@@ -105,6 +115,11 @@
 <div class="app">
   <main class="stage" id="stage">
     <canvas id="board" role="img" aria-label="두 사진에서 다른 곳 찾기"></canvas>
+    <!-- 위쪽 띠: 문제 번호 · 찾을 개수 (시간 제한은 두지 않는다 — 어르신이 쓰셔서) -->
+    <div class="qbar" id="qbar">
+      <div class="qtxt"><span class="qno" id="qNo">1 / 5</span>다른 곳 <b id="qN">3</b>군데를 찾아보세요</div>
+    </div>
+    <div class="cheer" id="cheer" hidden></div>
     <aside class="side" id="side">
       <button id="gear" class="btn" type="button">설정</button>
       <div class="score"><span>찾은 곳</span><b id="score">0/0</b><div class="dots" id="dots"></div></div>
@@ -119,9 +134,11 @@
           <input id="file" class="vh" type="file" accept="image/*">
           <div id="mode" class="seg wide" role="group" aria-label="무엇으로 할까요">
             <button class="btn" type="button" data-v="art" aria-pressed="true">동화 그림</button>
+            <button class="btn" type="button" data-v="illust" aria-pressed="false">일러스트</button>
             <button class="btn" type="button" data-v="photo" aria-pressed="false">내 사진</button>
           </div>
-          <label for="file" class="btn wide">사진 한 장 고르기</label>
+          <p class="note wide">일러스트: 무료 일러스트(만화풍 그림)를 「폴더 고르기」로 넣으면 머리 색·단추처럼 색 덩어리를 바꿔 문제를 만들어요.</p>
+          <label for="file" class="btn wide">그림·사진 한 장 고르기</label>
           <input id="dir" class="vh" type="file" webkitdirectory multiple>
           <label for="dir" class="btn wide" id="dirLbl">폴더 고르기</label>
           <div class="album wide" id="album" hidden>
@@ -141,17 +158,17 @@
           <button id="full" class="btn wide" type="button">전체 화면</button>
         </div>
         <p class="note" id="stat">시간 <b id="tm">0:00</b> · 왼쪽과 오른쪽 사진에서 다른 곳을 눌러요 · 「힌트」는 여러 번 누를수록 더 정확히 알려 줘요</p>
-        <p class="note">버전 11월 3일 · 동화 그림</p>
+        <p class="note">버전 11월 4일 · 5문제 · 일러스트</p>
         <button id="menuClose" class="btn primary" type="button">닫고 찾기</button>
       </div>
     </div>
 
     <div class="veil" id="done" hidden>
       <div class="card">
-        <h2>다 찾았어요!</h2>
+        <h2 id="dTitle">다 찾았어요!</h2>
         <dl>
+          <dt>다 찾은 문제</dt><dd id="dPc">0</dd>
           <dt>걸린 시간</dt><dd id="dTm">0:00</dd>
-          <dt>찾은 곳</dt><dd id="dPc">0</dd>
         </dl>
         <button id="doneNext" class="btn primary" type="button" hidden>다른 사진으로</button>
         <button id="doneAgain" class="btn primary" type="button">한 번 더 하기</button>
@@ -168,7 +185,8 @@
   const stage = $('#stage'), side = $('#side');
   const turned = matchMedia('(orientation: portrait)');
   const KEY = 'diff.v1', ALBUM = 'diff.album', MODE = 'diff.mode', AUTO_SEC = 10, DONE_DELAY = 1, HINT_MS = 5000;
-  let mode = 'art'; // 'art' 동화 그림(기본) / 'photo' 내 사진 — boot에서 저장값을 읽는다
+  let mode = 'art'; // 'art' 동화 그림(기본) / 'illust' 일러스트 / 'photo' 내 사진 — boot에서 저장값을 읽는다
+
   // 난이도: 바꿀 곳 수, 크기(사진 짧은 변 대비)
   const LEVELS = { 1: { n: 3, size: .12 }, 2: { n: 5, size: .095 }, 3: { n: 7, size: .075 } };
   // 바꾸는 방식: 색이 뚜렷한 부분만 색 바꾸기, 물건 지우기, 크게 하기, 좌우 뒤집기, 옆 무늬 하나 더 (가장자리는 모두 부드럽게)
@@ -656,37 +674,184 @@
     G = { base, changed, art, sample: false, dataURL: null, level, diffs, hintD: null,
           elapsed: saved ? saved.el || 0 : 0, done: !!(saved && saved.done), started: false };
     fx = [];
+    startProblem();
     $('#done').hidden = true; $('#menu').hidden = true;
     stopAuto();
     layout(); showDone = true; syncUI(); save();
   }
 
+  // ---------- 일러스트: 색 덩어리 단위로 바꾸기 ----------
+  // 일러스트는 색이 칸칸이 나뉘어 있어서, 비슷한 색끼리 이어진 덩어리(머리카락·넥타이·단추·꽃 등)를 통째로
+  // 다른 색으로 칠하거나 둘레 색으로 지운다 — 경계가 또렷해서 영상 속 틀린그림처럼 자연스럽다
+  function regionDiffs(base, level){
+    const w = base.width, h = base.height, N = w*h;
+    const c = document.createElement('canvas'); c.width = w; c.height = h;
+    const g = c.getContext('2d', { willReadFrequently: true }); g.drawImage(base, 0, 0);
+    const im = g.getImageData(0, 0, w, h), px = im.data, src = new Uint8ClampedArray(px);
+    const lum = i => .299*src[i*4] + .587*src[i*4+1] + .114*src[i*4+2];
+    // 1) 씨앗 색과 비슷한 색끼리 이어진 덩어리
+    const lab = new Int32Array(N).fill(-1), stack = new Int32Array(N), regs = [], TOL = 34*34;
+    for (let s = 0; s < N; s++){
+      if (lab[s] >= 0) continue;
+      const id = regs.length, r0 = src[s*4], g0 = src[s*4+1], b0 = src[s*4+2];
+      let sp = 0, n = 0, sx = 0, sy = 0, x0 = w, y0 = h, x1 = 0, y1 = 0, border = false, sr = 0, sg = 0, sb = 0;
+      stack[sp++] = s; lab[s] = id;
+      while (sp){
+        const q = stack[--sp], x = q % w, y = (q - x)/w;
+        n++; sx += x; sy += y; sr += src[q*4]; sg += src[q*4+1]; sb += src[q*4+2];
+        if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+        if (x === 0 || y === 0 || x === w-1 || y === h-1) border = true;
+        for (const nq of [x > 0 ? q-1 : -1, x < w-1 ? q+1 : -1, y > 0 ? q-w : -1, y < h-1 ? q+w : -1]){
+          if (nq < 0 || lab[nq] >= 0) continue;
+          const dr = src[nq*4] - r0, dg = src[nq*4+1] - g0, db = src[nq*4+2] - b0;
+          if (dr*dr + dg*dg + db*db < TOL){ lab[nq] = id; stack[sp++] = nq; }
+        }
+      }
+      regs.push({ id, n, cx: sx/n, cy: sy/n, x0, y0, x1, y1, border, r: sr/n, g: sg/n, b: sb/n });
+    }
+    // 2) 고를 만한 덩어리: 테두리에 안 닿고, 검은 선이 아니고, 너무 크지 않은 것 (모자라면 작은 것까지)
+    const L = LEVELS[level], maxA = N*(level === 1 ? .05 : .03);
+    const sat = r => { const mx = Math.max(r.r, r.g, r.b), mn = Math.min(r.r, r.g, r.b); return mx ? (mx - mn)/mx : 0; };
+    // 살색(얼굴·손)은 색을 바꾸거나 지우면 이상해 보여서 뺀다
+    const skin = r => r.r > 170 && r.g > 110 && r.b > 80 && r.r > r.g && r.g > r.b && r.r - r.b < 130 && sat(r) < .5;
+    let cands = [];
+    for (const f of (level === 1 ? [.003, .0012, .0005] : [.0012, .0005, .0002])){
+      cands = regs.filter(r => !r.border && r.n >= N*f && r.n <= maxA && (.299*r.r + .587*r.g + .114*r.b) > 45
+        && r.n/((r.x1 - r.x0 + 1)*(r.y1 - r.y0 + 1)) > .22 && !skin(r));
+      if (cands.length >= L.n*2) break;
+    }
+    shuffle(cands);
+    // 쉬울수록 큰 덩어리부터
+    if (level === 1) cands.sort((a, b) => b.n - a.n);
+    // 3) 바꾸기 — 색 바꾸기와 지우기를 번갈아 (색이 흐린 덩어리는 지우기만, 큰 덩어리는 색 바꾸기만)
+    const VIVID = [[229,57,53],[30,136,229],[67,160,71],[251,140,0],[142,68,173],[253,216,53],[240,98,146]];
+    const diffs = [], picked = [];
+    for (const r of cands){
+      if (diffs.length >= L.n) break;
+      const rad = Math.max(r.x1 - r.x0, r.y1 - r.y0)/2;
+      if (picked.some(p => Math.hypot(p.cx - r.cx, p.cy - r.cy) < p.rad + rad + 24)) continue;
+      const canRecolor = sat(r) > .25, canErase = r.n <= N*.02;
+      let op = diffs.length % 2 === 0 ? 'recolor' : 'erase';
+      if (op === 'recolor' && !canRecolor) op = canErase ? 'erase' : null;
+      else if (op === 'erase' && !canErase) op = canRecolor ? 'recolor' : null;
+      if (!op) continue;
+      const mine = [];
+      for (let y = r.y0; y <= r.y1; y++) for (let x = r.x0; x <= r.x1; x++){ const i = y*w + x; if (lab[i] === r.id) mine.push(i); }
+      if (op === 'recolor'){
+        // 그 덩어리 평균색에서 멀리 떨어진 선명한 색으로, 그림자 진하기는 그대로 살려서
+        const far = VIVID.map(v => ({ v, d: (v[0]-r.r)**2 + (v[1]-r.g)**2 + (v[2]-r.b)**2 })).sort((a, b) => b.d - a.d)[Math.floor(Math.random()*3)].v;
+        for (const i of mine){ const p = i*4; px[p] = Math.max(0, Math.min(255, far[0] + src[p] - r.r)); px[p+1] = Math.max(0, Math.min(255, far[1] + src[p+1] - r.g)); px[p+2] = Math.max(0, Math.min(255, far[2] + src[p+2] - r.b)); }
+      } else {
+        // 지우기: 굵은 검은 테두리 너머 둘레에서 가장 많은 색으로, 덩어리와 그 테두리 선까지 덮는다
+        const cnt = new Map(), D = 11, inR = new Set(mine), dark = new Set();
+        for (const i of mine){
+          const x = i % w, y = (i - x)/w;
+          for (let dy = -D; dy <= D; dy++) for (let dx = -D; dx <= D; dx++){
+            const xx = x + dx, yy = y + dy; if (xx < 0 || yy < 0 || xx >= w || yy >= h) continue;
+            const j = yy*w + xx; if (inR.has(j)) continue;
+            if (Math.abs(dx) <= 8 && Math.abs(dy) <= 8) dark.add(j); // 테두리 후보 (아래에서 바탕보다 어두운 것만 덮음)
+            if (lum(j) < 90) continue;
+            if (Math.abs(dx) < 7 && Math.abs(dy) < 7) continue; // 테두리 바로 옆 번진 색은 빼고
+            const key = (src[j*4] >> 4) + ',' + (src[j*4+1] >> 4) + ',' + (src[j*4+2] >> 4);
+            const e = cnt.get(key) || [0, 0, 0, 0]; e[0]++; e[1] += src[j*4]; e[2] += src[j*4+1]; e[3] += src[j*4+2]; cnt.set(key, e);
+          }
+        }
+        let best = null; for (const e of cnt.values()) if (!best || e[0] > best[0]) best = e;
+        if (!best) continue;
+        const fr = best[1]/best[0], fg = best[2]/best[0], fb = best[3]/best[0], fl = .299*fr + .587*fg + .114*fb;
+        for (const i of mine){ const p = i*4; px[p] = fr; px[p+1] = fg; px[p+2] = fb; }
+        // 테두리 선과 그 번진 자국: 둘레 바탕색보다 어두운 것만 덮는다 (이웃 그림은 그대로)
+        for (const i of dark) if (lum(i) < fl - 25){ const p = i*4; px[p] = fr; px[p+1] = fg; px[p+2] = fb; }
+      }
+      picked.push({ ...r, rad });
+      diffs.push({ x: Math.round(r.cx), y: Math.round(r.cy), r: Math.round(Math.max(30, r.rad*1.2)), k: op, f: 0 });
+    }
+    g.putImageData(im, 0, 0);
+    return { diffs, changed: c };
+  }
+
   // ---------- 게임 ----------
-  function build(base, level, sample, dataURL, saved){
-    const diffs = saved ? saved.diffs : plan(base, level);
-    G = { base, sample, dataURL, level, diffs, changed: paint(base, diffs), hintD: null,
+  // kind: 'illust'이면 일러스트 방식(색 덩어리), 아니면 사진 방식 / chgImg: 이어하기 때 저장해 둔 바뀐 그림
+  function build(base, level, sample, dataURL, saved, kind, chgImg){
+    let diffs, changed;
+    if (kind === 'illust'){
+      if (saved && chgImg){ diffs = saved.diffs; changed = chgImg; }
+      else ({ diffs, changed } = regionDiffs(base, level));
+      if (!diffs.length){ toast('이 그림에서는 다른 곳을 만들기 어려워요. 다른 그림으로 해 볼게요.'); }
+    } else { diffs = saved ? saved.diffs : plan(base, level); changed = paint(base, diffs); }
+    G = { base, sample, dataURL, level, diffs, changed, illust: kind === 'illust', hintD: null,
           elapsed: saved ? saved.el || 0 : 0, done: !!(saved && saved.done), started: false };
+    if (G.illust){ try { G.chgURL = changed.toDataURL('image/jpeg', .9); } catch(e){} }
     fx = [];
+    startProblem();
     layout();
     showDone = true;
     syncUI();
     save();
   }
-  function newGame(img, level, sample, dataURL){
+  function newGame(img, level, sample, dataURL, kind){
     if (!sample && !dataURL){ try { dataURL = img.toDataURL('image/jpeg', .85); } catch(e){ dataURL = null; } }
-    build(img, level, sample, dataURL, null);
+    build(img, level, sample, dataURL, null, kind);
     $('#menu').hidden = true;
   }
+  const kindNow = () => mode === 'illust' ? 'illust' : undefined;
   const level = () => { const b = $('#level [aria-pressed="true"]'); return b ? +b.dataset.v : 1; };
   function syncLevel(v){ for (const b of $('#level').querySelectorAll('[data-v]')) b.setAttribute('aria-pressed', +b.dataset.v === v ? 'true' : 'false'); }
   const foundN = () => G.diffs.filter(d => d.f).length;
 
+  // ---------- 한 판 = 5문제 (영상처럼: 위에 문제 번호·남은 시간, 다 풀면 결과) ----------
+  const ROUND_N = 5;
+  let RD = { at: 1, full: 0, time: 0 }, between = false;
+  function startProblem(){
+    between = false;
+    $('#cheer').hidden = true;
+    syncBar();
+  }
+  function syncBar(){
+    if (!G) return;
+    $('#qNo').textContent = `${RD.at} / ${ROUND_N}`;
+    $('#qN').textContent = G.diffs.length;
+  }
+  function cheer(text, ms){
+    const c = $('#cheer'); c.textContent = text; c.hidden = false;
+    setTimeout(() => { c.hidden = true; }, ms);
+  }
   function finish(){
     G.done = true; G.started = false; showDone = false;
     [523, 659, 784, 1047].forEach((f, i) => setTimeout(() => beep(f, .18), i*110));
+    RD.full++; RD.time += G.elapsed;
     syncUI();
+    cheer('찾았어요!', 1500);
+    toNext(1700);
+  }
+  function toNext(ms){
+    between = true;
     const cur = G;
-    setTimeout(() => { if (G === cur) openDone(); }, DONE_DELAY*1000);
+    setTimeout(() => {
+      if (G !== cur) return;
+      if (RD.at >= ROUND_N) return showResult();
+      RD.at++;
+      nextProblem();
+    }, ms);
+  }
+  function nextProblem(){
+    if (mode === 'art') return buildArt(level());
+    if (album.length) return nextPhoto();
+    if (mode === 'illust'){ setMode('art'); return buildArt(level()); }
+    newGame(sampleImage(), level(), true);
+  }
+  function showResult(){
+    $('#dTitle').textContent = RD.full === ROUND_N ? '다 찾았어요!' : '잘하셨어요!';
+    $('#dPc').textContent = `${ROUND_N}문제 중 ${RD.full}문제`;
+    $('#dTm').textContent = fmt(RD.time);
+    $('#doneNext').hidden = true; $('#doneClose').hidden = true; $('#doneAgain').hidden = false;
+    $('#doneAgain').textContent = '한 판 더';
+    $('#done').hidden = false;
+  }
+  function newRound(){
+    RD = { at: 1, full: 0, time: 0 };
+    $('#done').hidden = true;
+    nextProblem();
   }
   function openDone(){
     if (!G || !G.done || showDone) return;
@@ -735,14 +900,15 @@
     cv.width = Math.round(W*dpr); cv.height = Math.round(H*dpr);
     if (!felt) makeFelt();
     if (G){
-      const aw = tall ? W : W - sw, ah = tall ? H - sw : H, iw = G.base.width, ih = G.base.height, pad = 10, gap = 14;
+      // 위쪽은 문제 번호·남은 시간 띠(TH)
+      const TH = 66, aw = tall ? W : W - sw, ah = (tall ? H - sw : H) - TH, iw = G.base.width, ih = G.base.height, pad = 10, gap = 14;
       const sSide = Math.min((aw - 2*pad - gap)/(2*iw), (ah - 2*pad)/ih);
       const sStack = Math.min((aw - 2*pad)/iw, (ah - 2*pad - gap)/(2*ih));
       if (sSide >= sStack){
         S = sSide; const tw = 2*iw*S + gap, x0 = (aw - tw)/2;
-        AX = x0; BX = x0 + iw*S + gap; AY = BY = (ah - ih*S)/2;
+        AX = x0; BX = x0 + iw*S + gap; AY = BY = TH + (ah - ih*S)/2;
       } else {
-        S = sStack; const th = 2*ih*S + gap, y0 = (ah - th)/2;
+        S = sStack; const th = 2*ih*S + gap, y0 = TH + (ah - th)/2;
         AX = BX = (aw - iw*S)/2; AY = y0; BY = y0 + ih*S + gap;
       }
     }
@@ -780,6 +946,8 @@
         if (t < 1) dirty = true;
         ring(ox + d.x*S, oy + d.y*S, d.r*S*1.08*(1 + (1-t)*.5), '#D8A445', 4);
       }
+      // 시간이 다 돼서 알려 주는 곳은 빨간 점선
+      for (const d of G.diffs) if (d.rev && !d.f) ring(ox + d.x*S, oy + d.y*S, d.r*S*1.08, '#FF6B5B', 5, [12, 8]);
     });
     fx = fx.filter(f => now - f.t0 < f.dur);
     for (const f of fx){
@@ -804,8 +972,7 @@
     return { x: e.clientX - r.left, y: e.clientY - r.top };
   }
   cv.addEventListener('pointerdown', e => {
-    if (!G) return;
-    if (G.done){ if (!showDone && !nexting) openDone(); return; }
+    if (!G || G.done || between) return;
     wakeAudio(); wake();
     const { x, y } = local(e), bw = G.base.width*S, bh = G.base.height*S;
     let ox = null, oy = null;
@@ -863,7 +1030,7 @@
     if (G.art){ store.set(KEY, JSON.stringify({ v: 2, art: G.art, level: G.level, diffs, el: Math.round(G.elapsed), done: G.done })); return; }
     if (!G.sample && !G.dataURL) return;
     const st = { v: 1, sample: G.sample, img: G.sample ? null : G.dataURL, level: G.level,
-      diffs, el: Math.round(G.elapsed), done: G.done };
+      diffs, el: Math.round(G.elapsed), done: G.done, illust: G.illust, chg: G.illust ? G.chgURL : undefined };
     if (!store.set(KEY, JSON.stringify(st)) && !saveWarned){
       saveWarned = true;
       toast('저장 공간이 부족해 진행 상황을 기억하지 못해요. 게임은 그대로 계속할 수 있어요.');
@@ -871,7 +1038,7 @@
   }
   function boot(){
     layout();
-    mode = store.get(MODE) === 'photo' ? 'photo' : 'art';
+    mode = ['photo', 'illust'].includes(store.get(MODE)) ? store.get(MODE) : 'art';
     for (const b of $('#mode').querySelectorAll('[data-v]')) b.setAttribute('aria-pressed', b.dataset.v === mode ? 'true' : 'false');
     loadAlbum();
     let st = null;
@@ -885,13 +1052,21 @@
     const ok = st && st.v === 1 && LEVELS[st.level] && Array.isArray(st.diffs) && st.diffs.length;
     if (ok) syncLevel(st.level);
     if (ok && st.sample){ build(sampleImage(), st.level, true, null, st); tryBorrow(); return; }
-    if (ok && st.img){
+    if (ok && st.img && !!st.illust === (mode === 'illust')){
       const im = new Image();
-      im.onload = () => build(fit(im, 1400), st.level, false, st.img, st);
-      im.onerror = () => newGame(sampleImage(), level(), true);
+      im.onload = () => {
+        if (!st.illust) return build(fit(im, 1400), st.level, false, st.img, st);
+        // 일러스트는 바뀐 그림도 저장해 둔 것을 그대로 쓴다
+        const ch = new Image();
+        ch.onload = () => build(fit(im, 1400), st.level, false, st.img, st, 'illust', fit(ch, 1400));
+        ch.onerror = () => newGame(fit(im, 1400), level(), false, st.img, 'illust');
+        ch.src = st.chg || '';
+      };
+      im.onerror = () => nextProblem();
       im.src = st.img;
       return;
     }
+    if (mode === 'illust' && album.length){ nextPhoto(); return; }
     newGame(sampleImage(), level(), true);
     tryBorrow();
   }
@@ -1052,12 +1227,14 @@
   // 무엇으로 할지: 'art' 동화 그림(기본) / 'photo' 내 사진
   function setMode(m){
     mode = m; store.set(MODE, m);
+    RD = { at: 1, full: 0, time: 0 }; // 방식을 바꾸면 1번 문제부터
     for (const b of $('#mode').querySelectorAll('[data-v]')) b.setAttribute('aria-pressed', b.dataset.v === m ? 'true' : 'false');
     syncAlbum(); stopAuto();
   }
   async function useAlbum(list){
     let files = [...list].filter(f => /^image\//.test(f.type) || /\.(jpe?g|png|webp|gif|bmp|avif)$/i.test(f.name));
     if (!files.length){ toast('사진 파일이 없어요. 사진이 들어 있는 폴더를 골라 주세요.'); return; }
+    RD = { at: 1, full: 0, time: 0 }; // 새 그림 묶음이면 1번 문제부터
     shuffle(files);
     try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch(e){}
     const job = ++importJob;
@@ -1068,7 +1245,7 @@
     if (job !== importJob) return;
     if (first < 0){ toast('이 사진들은 열 수 없어요. 사진(JPG·PNG) 파일을 골라 주세요.'); return; }
     saveWarned = false;
-    newGame(firstImg, level(), false);
+    newGame(firstImg, level(), false, null, kindNow());
     let stored = true;
     try { await idb('readwrite', st => st.clear()); } catch(e){ stored = false; }
     if (job !== importJob) return;
@@ -1112,7 +1289,7 @@
           const img = await loadFit(blob);
           curKey = k; saveAlbum();
           $('#done').hidden = true;
-          newGame(img, level(), false);
+          newGame(img, level(), false, null, kindNow());
           return;
         } catch(e){ album = album.filter(x => x !== k); syncAlbum(); saveAlbum(); }
       }
@@ -1170,20 +1347,21 @@
     e.target.value = '';
     if (!f) return;
     const url = URL.createObjectURL(f), im = new Image();
-    im.onload = () => { URL.revokeObjectURL(url); saveWarned = false; setMode('photo'); newGame(fit(im, 1400), level(), false); };
+    im.onload = () => { URL.revokeObjectURL(url); saveWarned = false; if (mode !== 'illust') setMode('photo'); newGame(fit(im, 1400), level(), false, null, kindNow()); };
     im.onerror = () => { URL.revokeObjectURL(url); toast('이 파일은 열 수 없어요. 사진(JPG·PNG) 파일을 골라 주세요.'); };
     im.src = url;
   });
   $('#dir').addEventListener('change', e => {
     const fs = e.target.files ? [...e.target.files] : [];
     e.target.value = '';
-    if (fs.length){ setMode('photo'); useAlbum(fs); }
+    if (fs.length){ if (mode !== 'illust') setMode('photo'); useAlbum(fs); }
   });
   $('#mode').addEventListener('click', async e => {
     const b = e.target.closest('[data-v]');
     if (!b || b.dataset.v === mode) return;
     setMode(b.dataset.v);
     if (mode === 'art'){ buildArt(level()); return; }
+    if (mode === 'illust'){ if (album.length) nextPhoto(); else { toast('「폴더 고르기」로 일러스트 그림을 넣어 주세요. 그동안은 동화 그림으로 해요.'); } return; }
     // 내 사진: 묶음이 있으면 그 사진, 없으면 다른 게임 사진을 빌리고, 그것도 없으면 사진을 골라 달라고
     if (album.length){ nextPhoto(); return; }
     if (!(await tryBorrow())){ newGame(sampleImage(), level(), true); toast('「사진 한 장 고르기」나 「폴더 고르기」로 사진을 넣어 주세요.'); }
@@ -1212,7 +1390,7 @@
     if (!b || !G || +b.dataset.v === G.level) return;
     syncLevel(+b.dataset.v);
     if (G.art) buildArt(+b.dataset.v);
-    else newGame(G.base, +b.dataset.v, G.sample, G.dataURL);
+    else newGame(G.base, +b.dataset.v, G.sample, G.dataURL, G.illust ? 'illust' : undefined);
   });
   $('#hint').addEventListener('click', hint);
   $('#sound').addEventListener('click', e => { soundOn = !soundOn; toggle(e.currentTarget, soundOn); if (soundOn){ wakeAudio(); beep(660, .08); } });
@@ -1228,9 +1406,9 @@
     }
     clearTimeout(armT); disarm();
     if (G.art) buildArt(G.level);
-    else newGame(G.base, G.level, G.sample, G.dataURL);
+    else newGame(G.base, G.level, G.sample, G.dataURL, G.illust ? 'illust' : undefined);
   });
-  $('#doneAgain').addEventListener('click', () => { stopAuto(); if (G.art) buildArt(G.level); else newGame(G.base, G.level, G.sample, G.dataURL); });
+  $('#doneAgain').addEventListener('click', () => { stopAuto(); newRound(); });
   $('#gear').addEventListener('click', () => { stopAuto(); syncStats(); $('#menu').hidden = false; });
   $('#menuClose').addEventListener('click', () => { $('#menu').hidden = true; });
   const fullBtn = $('#full'), fsEl = document.documentElement;
