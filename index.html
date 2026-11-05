@@ -39,7 +39,10 @@
     -webkit-user-select:none;user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent;
   }
   .app{position:relative;height:100%}
-  /* 이 게임은 다른 게임과 달리 세로 화면을 돌리지 않는다 — 세로면 두 사진을 위아래로 크게, 버튼 띠는 아래에 */
+  /* 화면이 세로면 게임 화면 전체를 90도 돌려 가로 화면처럼 쓴다 (다른 게임과 같게, 2026-11-05 사용자 요청) */
+  @media (orientation:portrait){
+    .app{position:fixed;top:0;left:100vw;width:100vh;height:100vw;transform-origin:0 0;transform:rotate(90deg)}
+  }
   .btn{
     display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:58px;padding:0 18px;
     border-radius:12px;border:1px solid var(--line);background:var(--chip);color:var(--ink);
@@ -69,13 +72,7 @@
   .dots{display:flex;flex-wrap:wrap;justify-content:center;gap:6px}
   .dots i{width:16px;height:16px;border-radius:50%;border:2px solid var(--brass)}
   .dots i.on{background:var(--brass)}
-  @media (orientation:portrait){
-    .side{left:0;top:auto;width:auto;height:var(--side);flex-direction:row;align-items:center;padding:10px 14px;border-left:0;border-top:1px solid var(--line)}
-    .side .btn{flex:0 0 auto;min-width:130px;padding:0 22px}
-    .score{flex-direction:row;gap:12px}
-  }
   .qbar{position:absolute;left:0;top:0;right:var(--side);height:66px;display:flex;align-items:center;padding:6px 16px}
-  @media (orientation:portrait){ .qbar{right:0} }
   .qtxt{display:flex;align-items:center;gap:12px;font-family:"Do Hyeon","IBM Plex Sans KR",sans-serif;font-size:32px;line-height:1;color:var(--ink)}
   .qtxt b{color:var(--brass);font-weight:400}
   .qno{padding:5px 12px;border-radius:10px;background:var(--brass);color:var(--brass-ink);font-size:24px}
@@ -137,10 +134,13 @@
             <button class="btn" type="button" data-v="illust" aria-pressed="false">일러스트</button>
             <button class="btn" type="button" data-v="photo" aria-pressed="false">내 사진</button>
           </div>
-          <p class="note wide">일러스트: 무료 일러스트(만화풍 그림)를 「폴더 고르기」로 넣으면 머리 색·단추처럼 색 덩어리를 바꿔 문제를 만들어요.</p>
+          <p class="note wide">일러스트: 두 그림이 나란히 있는 캡처를 넣으면 두 그림을 비교해 진짜 틀린 곳으로 문제를 내요. 그림 한 장만 넣으면 색 덩어리를 바꿔 문제를 만들어요.</p>
           <label for="file" class="btn wide">그림·사진 한 장 고르기</label>
           <input id="dir" class="vh" type="file" webkitdirectory multiple>
-          <label for="dir" class="btn wide" id="dirLbl">폴더 고르기</label>
+          <label for="dir" class="btn" id="dirLbl">폴더 고르기</label>
+          <!-- 태블릿에서 폴더 고르기가 그림을 못 읽을 때: 갤러리에서 여러 장을 골라 넣는다 -->
+          <input id="many" class="vh" type="file" accept="image/*" multiple>
+          <label for="many" class="btn" id="manyLbl">여러 장 고르기</label>
           <div class="album wide" id="album" hidden>
             <p class="note">사진 묶음 <b id="albumN">0</b>장 · 다 찾으면 이 중에서 다른 사진이 나와요 (사진 퍼즐·숨은그림에 넣은 사진도 함께 써요)</p>
             <div class="grid2">
@@ -158,7 +158,7 @@
           <button id="full" class="btn wide" type="button">전체 화면</button>
         </div>
         <p class="note" id="stat">시간 <b id="tm">0:00</b> · 왼쪽과 오른쪽 사진에서 다른 곳을 눌러요 · 「힌트」는 여러 번 누를수록 더 정확히 알려 줘요</p>
-        <p class="note">버전 11월 5일 · 5문제 · 일러스트(두 그림 비교)</p>
+        <p class="note">버전 11월 5일 오후 · 가로 화면 · 확대</p>
         <button id="menuClose" class="btn primary" type="button">닫고 찾기</button>
       </div>
     </div>
@@ -779,6 +779,7 @@
     const c = document.createElement('canvas'); c.width = w; c.height = h;
     const g = c.getContext('2d', { willReadFrequently: true }); g.drawImage(img, 0, 0);
     const px = g.getImageData(0, 0, w, h).data;
+    c.width = c.height = 0; // 다 읽은 임시 그림판은 바로 비워 태블릿 메모리를 아낀다
     // 1) 가운데 근처에서 위아래로 색이 거의 같은 세로줄(경계선) 찾기
     let best = -1, bestV = Infinity;
     const vari = x => { let s = 0, s2 = 0, n = 0; for (let y = 0; y < h; y += 3){ const p = (y*w + x)*4, l = px[p] + px[p+1] + px[p+2]; s += l; s2 += l*l; n++; } return s2/n - (s/n)**2; };
@@ -828,7 +829,7 @@
     //    (칸으로 먼저 줄이면 선이 칸에 걸친 정도가 두 그림에서 달라서 선마다 차이가 생긴다)
     const P = Object.assign({ D: 4, Q: 1, T: 60, W2: 2, er: 7, cmin: 3, mx: 100, avg: 140, minC: 3, GR: 2, big: .03 }, window.__pairOpt || {}), D = P.D, Q = P.Q;
     const gw = Math.floor(pw/D), gh = Math.floor(h/D), fw = Math.floor(pw/Q), fh = Math.floor(h/Q);
-    const small = cv => { const c2 = document.createElement('canvas'); c2.width = fw; c2.height = fh; const g2 = c2.getContext('2d', { willReadFrequently: true }); g2.imageSmoothingQuality = 'high'; g2.drawImage(cv, 0, 0, fw, fh); return g2.getImageData(0, 0, fw, fh).data; };
+    const small = cv => { const c2 = document.createElement('canvas'); c2.width = fw; c2.height = fh; const g2 = c2.getContext('2d', { willReadFrequently: true }); g2.imageSmoothingQuality = 'high'; g2.drawImage(cv, 0, 0, fw, fh); const d = g2.getImageData(0, 0, fw, fh).data; c2.width = c2.height = 0; return d; };
     const Ls = small(left), Rs = small(right), cell = new Float32Array(gw*gh), W2 = P.W2;
     const nearest = (A, B, x, y) => {
       const p = (y*fw + x)*4; let m = Infinity;
@@ -906,7 +907,8 @@
     } else { diffs = saved ? saved.diffs : plan(base, level); changed = paint(base, diffs); }
     G = { base, sample, dataURL, level, diffs, changed, illust: kind === 'illust', hintD: null,
           elapsed: saved ? saved.el || 0 : 0, done: !!(saved && saved.done), started: false };
-    G.pair = !!pair; if (full) G.full = full; // 난이도·다시 하기 때 원래 나란한 그림으로
+    G.pair = !!pair; if (full) G.full = full;
+    V = { z: 1, x: 0, y: 0 }; // 새 문제는 확대 없이 // 난이도·다시 하기 때 원래 나란한 그림으로
     if (G.illust && !pair){ try { G.chgURL = changed.toDataURL('image/jpeg', .9); } catch(e){} }
     fx = [];
     startProblem();
@@ -1019,8 +1021,8 @@
   // 두 사진을 나란히(또는 위아래로) 가장 크게
   function layout(){
     W = Math.max(1, stage.clientWidth); H = Math.max(1, stage.clientHeight);
-    // 가로 화면이면 버튼 띠를 오른쪽에, 세로 화면이면 아래에
-    const tall = turned.matches, sw = tall ? 88 : Math.round(Math.min(150, Math.max(104, W*.1)));
+    // 버튼 띠는 늘 오른쪽 (세로 화면이면 화면 전체를 돌려서 가로로 쓴다)
+    const tall = false, sw = Math.round(Math.min(150, Math.max(104, W*.1)));
     stage.style.setProperty('--side', sw + 'px');
     dpr = Math.min(2, window.devicePixelRatio || 1);
     cv.width = Math.round(W*dpr); cv.height = Math.round(H*dpr);
@@ -1048,6 +1050,15 @@
     ctx.lineWidth = width; ctx.strokeStyle = color; ctx.stroke();
     ctx.restore();
   }
+  // 손가락 두 개로 벌리면 두 그림이 똑같이 확대된다 — V.z 배율, V.x·V.y 보이는 곳 왼쪽 위(그림 점 단위)
+  let V = { z: 1, x: 0, y: 0 };
+  const K = () => S*V.z;                                   // 그림 점 1개가 화면에서 차지하는 크기
+  const SX = (o, p) => o + (p - V.x)*K(), SY = (o, p) => o + (p - V.y)*K();
+  function clampView(){
+    const iw = G.base.width, ih = G.base.height;
+    V.z = Math.min(4, Math.max(1, V.z));
+    V.x = Math.min(iw - iw/V.z, Math.max(0, V.x)); V.y = Math.min(ih - ih/V.z, Math.max(0, V.y));
+  }
   function onBoth(fn){
     for (const [ox, oy] of [[AX, AY], [BX, BY]]){
       ctx.save(); ctx.beginPath(); ctx.rect(ox, oy, G.base.width*S, G.base.height*S); ctx.clip();
@@ -1059,8 +1070,8 @@
     ctx.fillStyle = felt; ctx.fillRect(0, 0, W, H);
     if (!G) return;
     const bw = G.base.width*S, bh = G.base.height*S, now = performance.now();
-    ctx.drawImage(G.base, AX, AY, bw, bh);
-    ctx.drawImage(G.changed, BX, BY, bw, bh);
+    let side = 0;
+    onBoth((ox, oy) => { ctx.drawImage(side++ ? G.changed : G.base, SX(ox, 0), SY(oy, 0), bw*V.z, bh*V.z); });
     for (const [ox, oy] of [[AX, AY], [BX, BY]]){
       ctx.strokeStyle = G.done ? '#D8A445' : 'rgba(236,229,211,.35)'; ctx.lineWidth = G.done ? 3 : 2;
       ctx.strokeRect(ox-1, oy-1, bw+2, bh+2);
@@ -1070,10 +1081,10 @@
         if (!d.f) continue;
         const t = d.ft ? Math.min(1, (now - d.ft)/350) : 1;
         if (t < 1) dirty = true;
-        ring(ox + d.x*S, oy + d.y*S, d.r*S*1.08*(1 + (1-t)*.5), '#D8A445', 4);
+        ring(SX(ox, d.x), SY(oy, d.y), d.r*K()*1.08*(1 + (1-t)*.5), '#D8A445', 4);
       }
       // 시간이 다 돼서 알려 주는 곳은 빨간 점선
-      for (const d of G.diffs) if (d.rev && !d.f) ring(ox + d.x*S, oy + d.y*S, d.r*S*1.08, '#FF6B5B', 5, [12, 8]);
+      for (const d of G.diffs) if (d.rev && !d.f) ring(SX(ox, d.x), SY(oy, d.y), d.r*K()*1.08, '#FF6B5B', 5, [12, 8]);
     });
     fx = fx.filter(f => now - f.t0 < f.dur);
     for (const f of fx){
@@ -1083,30 +1094,77 @@
       else onBoth((ox, oy) => {
         if (f.kind === 'exact'){
           const on = .5 + .5*Math.sin(t*Math.PI*10);
-          ring(ox + f.x*S, oy + f.y*S, f.r*S, `rgba(255,214,110,${on})`, 6);
-        } else ring(ox + f.x*S, oy + f.y*S, f.r*S*(1 + .06*Math.sin(t*Math.PI*6)), '#FFD66E', 7, [16, 10]);
+          ring(SX(ox, f.x), SY(oy, f.y), f.r*K(), `rgba(255,214,110,${on})`, 6);
+        } else ring(SX(ox, f.x), SY(oy, f.y), f.r*K()*(1 + .06*Math.sin(t*Math.PI*6)), '#FFD66E', 7, [16, 10]);
       });
       ctx.globalAlpha = 1;
     }
     if (fx.length) dirty = true;
   }
   function frame(){ if (dirty){ dirty = false; draw(); } requestAnimationFrame(frame); }
+  // 태블릿이 메모리가 모자라 그림판을 비웠다가 되살리면 다시 그린다
+  cv.addEventListener('contextrestored', () => { felt = null; layout(); });
 
   // ---------- 누르기 ----------
   function local(e){
     const r = cv.getBoundingClientRect();
+    // 화면을 90도 돌렸으면 누른 곳도 돌려서 계산
+    if (turned.matches) return { x: e.clientY - r.top, y: r.right - e.clientX };
     return { x: e.clientX - r.left, y: e.clientY - r.top };
   }
+  // 어느 그림 위인지 (그림 왼쪽 위 화면 좌표), 아니면 null
+  function whichPic(x, y){
+    const bw = G.base.width*S, bh = G.base.height*S;
+    if (x >= AX && x <= AX + bw && y >= AY && y <= AY + bh) return [AX, AY];
+    if (x >= BX && x <= BX + bw && y >= BY && y <= BY + bh) return [BX, BY];
+    return null;
+  }
+  // 한 손가락으로 톡 = 고르기(손을 뗄 때), 두 손가락 = 확대·이동, 확대했을 때 한 손가락으로 끌기 = 이동
+  const touches = new Map();
+  let gest = null;   // { kind: 'tap'|'pan'|'pinch', ... }
   cv.addEventListener('pointerdown', e => {
-    if (!G || G.done || between) return;
+    if (!G) return;
     wakeAudio(); wake();
-    const { x, y } = local(e), bw = G.base.width*S, bh = G.base.height*S;
-    let ox = null, oy = null;
-    if (x >= AX && x <= AX + bw && y >= AY && y <= AY + bh){ ox = AX; oy = AY; }
-    else if (x >= BX && x <= BX + bw && y >= BY && y <= BY + bh){ ox = BX; oy = BY; }
-    if (ox === null) return;
+    try { cv.setPointerCapture(e.pointerId); } catch(err){}
+    touches.set(e.pointerId, local(e));
+    if (touches.size === 1){ const p = local(e); gest = { kind: 'tap', x0: p.x, y0: p.y, vx: V.x, vy: V.y }; }
+    else if (touches.size === 2){
+      const [a, b] = [...touches.values()], mx = (a.x + b.x)/2, my = (a.y + b.y)/2, o = whichPic(mx, my) || [AX, AY];
+      gest = { kind: 'pinch', d0: Math.hypot(a.x - b.x, a.y - b.y) || 1, z0: V.z, o, px: V.x + (mx - o[0])/K(), py: V.y + (my - o[1])/K() };
+    }
+  });
+  cv.addEventListener('pointermove', e => {
+    if (!touches.has(e.pointerId) || !gest) return;
+    touches.set(e.pointerId, local(e));
+    if (gest.kind === 'pinch' && touches.size >= 2){
+      const [a, b] = [...touches.values()], mx = (a.x + b.x)/2, my = (a.y + b.y)/2;
+      V.z = gest.z0*Math.hypot(a.x - b.x, a.y - b.y)/gest.d0;
+      V.z = Math.min(4, Math.max(1, V.z));
+      // 두 손가락 가운데에 있던 그림 점이 계속 손가락 가운데에 있게
+      V.x = gest.px - (mx - gest.o[0])/K(); V.y = gest.py - (my - gest.o[1])/K();
+      clampView(); dirty = true;
+    } else if (touches.size === 1){
+      const p = local(e);
+      if (gest.kind === 'tap' && V.z > 1 && Math.hypot(p.x - gest.x0, p.y - gest.y0) > 14) gest.kind = 'pan';
+      if (gest.kind === 'pan'){ V.x = gest.vx - (p.x - gest.x0)/K(); V.y = gest.vy - (p.y - gest.y0)/K(); clampView(); dirty = true; }
+    }
+  });
+  const lift = e => {
+    if (!touches.has(e.pointerId)) return;
+    const p = local(e); touches.delete(e.pointerId);
+    if (gest && gest.kind === 'tap' && e.type === 'pointerup' && Math.hypot(p.x - gest.x0, p.y - gest.y0) <= 14) tap(gest.x0, gest.y0);
+    if (!touches.size){ if (V.z < 1.08){ V = { z: 1, x: 0, y: 0 }; dirty = true; } gest = null; }
+    else if (gest && gest.kind === 'pinch') gest = null; // 한 손가락이 남으면 아무것도 안 함
+  };
+  cv.addEventListener('pointerup', lift);
+  cv.addEventListener('pointercancel', lift);
+  function tap(x, y){
+    if (!G || G.done || between) return;
+    const at = whichPic(x, y);
+    if (!at) return;
+    const [ox, oy] = at;
     G.started = true;
-    const wx = (x - ox)/S, wy = (y - oy)/S, tol = 26/S;
+    const wx = V.x + (x - ox)/K(), wy = V.y + (y - oy)/K(), tol = 26/K();
     let hit = null, bestD = Infinity;
     for (const d of G.diffs){
       if (d.f) continue;
@@ -1125,7 +1183,7 @@
       beep(220, .06);
     }
     dirty = true;
-  });
+  }
 
   // ---------- 소리·화면 ----------
   let ac = null;
@@ -1477,10 +1535,11 @@
     im.onerror = () => { URL.revokeObjectURL(url); toast('이 파일은 열 수 없어요. 사진(JPG·PNG) 파일을 골라 주세요.'); };
     im.src = url;
   });
-  $('#dir').addEventListener('change', e => {
+  for (const id of ['#dir', '#many']) $(id).addEventListener('change', e => {
     const fs = e.target.files ? [...e.target.files] : [];
     e.target.value = '';
     if (fs.length){ if (mode !== 'illust') setMode('photo'); useAlbum(fs); }
+    else toast('고른 곳에서 그림을 읽지 못했어요. 「여러 장 고르기」로 갤러리에서 그림을 골라 주세요.');
   });
   $('#mode').addEventListener('click', async e => {
     const b = e.target.closest('[data-v]');
